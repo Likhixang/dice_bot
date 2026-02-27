@@ -21,10 +21,7 @@ if not ADMIN_IDS:
 
 # 每次停机修复后更新此处，停机补偿公告会自动带上本次修复说明
 LAST_FIX_DESC = (
-    "• /attack 对决系统全面升级：修复卡死不结算 bug（根因：watcher 缺 try/except，Redis 抖动静默失败）\n"
-    "• 结算结果改为删除原面板 → 另发独立结果消息永久保留\n"
-    "• 新增每人最高投入上限 20000 积分；禁止同时发起多个 Attack 或多人同时 Attack 同一目标\n"
-    "• 无人应战时 @挑战方 全额退款提示"
+    "• 调账命令权限收紧：+/-数字增减调账改为超管专属"
 )
 
 TZ_BJ = datetime.timezone(datetime.timedelta(hours=8))
