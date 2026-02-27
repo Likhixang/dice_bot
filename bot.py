@@ -112,6 +112,7 @@ async def handle_pw_redpack_text(message):
         except Exception as e:
             logging.warning(f"[maintenance] 置顶失败: {e}")
         await redis.set(f"maintenance_pin:{message.chat.id}", str(announce.message_id))
+        await redis.set(f"maintenance:{message.chat.id}", "1")
         return
 
     # ── 停机补偿（超管专属）──
@@ -136,6 +137,7 @@ async def handle_pw_redpack_text(message):
             except Exception:
                 pass
             await redis.delete(f"maintenance_pin:{message.chat.id}")
+        await redis.delete(f"maintenance:{message.chat.id}")
         old_comp_msg_id = await redis.get(f"compensation_pin:{message.chat.id}")
         if old_comp_msg_id:
             try:

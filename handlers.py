@@ -234,6 +234,8 @@ async def cmd_checkin(message: types.Message):
 
 @router.message(CleanTextFilter(), Command("redpack"))
 async def cmd_redpack(message: types.Message):
+    if await redis.exists(f"maintenance:{message.chat.id}"):
+        return await reply_and_auto_delete(message, "🔧 <b>系统维护中</b>，暂停发放红包，请稍后再试。")
     args = message.text.split()
     if len(args) < 3:
         return await reply_and_auto_delete(message, "❌ 用法：`/redpack 总金额 个数`")
@@ -288,6 +290,8 @@ async def cmd_redpack(message: types.Message):
 
 @router.message(CleanTextFilter(), Command("redpack_pw"))
 async def cmd_redpack_pw(message: types.Message):
+    if await redis.exists(f"maintenance:{message.chat.id}"):
+        return await reply_and_auto_delete(message, "🔧 <b>系统维护中</b>，暂停发放红包，请稍后再试。")
     args = message.text.split(maxsplit=3)
     if len(args) < 4:
         return await reply_and_auto_delete(message, "❌ 用法：`/redpack_pw 总额 个数 口令`")
@@ -513,6 +517,8 @@ async def admin_adjust_balance(message: types.Message):
 
 @router.message(CleanTextFilter(), F.text.regexp(PATTERN))
 async def handle_bet_command(message: types.Message):
+    if await redis.exists(f"maintenance:{message.chat.id}"):
+        return await reply_and_auto_delete(message, "🔧 <b>系统维护中</b>，暂停发起对局，请稍后再试。")
     match = PATTERN.match(message.text)
     if not match:
         return
