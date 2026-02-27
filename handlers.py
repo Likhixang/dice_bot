@@ -463,7 +463,13 @@ async def cmd_gift(message: types.Message):
     if sender_uid == target_uid:
         return await reply_and_auto_delete(message, "❌ 禁止自娱自乐‼️")
     if target_uid == str(BOT_ID) or message.reply_to_message.from_user.is_bot:
-        return await reply_and_auto_delete(message, "❌ 禁止贿赂荷官🤫")
+        sender_bal = await get_or_init_balance(sender_uid)
+        deduct = min(amount, round(sender_bal, 2))
+        if deduct > 0:
+            await update_balance(sender_uid, -deduct)
+        bot_msg = await message.reply(f"❌ 禁止贿赂荷官！礼品已没收，扣除 <b>{deduct}</b> 积分🤫")
+        asyncio.create_task(delete_msgs([message, bot_msg], 10))
+        return
 
     sender_bal = await get_or_init_balance(sender_uid)
     if sender_bal < amount:
@@ -614,7 +620,7 @@ async def handle_bet_command(message: types.Message):
         if target_uid == uid:
             return await reply_and_auto_delete(message, "❌ 禁止自娱自乐‼️")
         if target_uid == str(BOT_ID) or message.reply_to_message.from_user.is_bot:
-            return await reply_and_auto_delete(message, "❌ 禁止贿赂荷官🤫")
+            return await reply_and_auto_delete(message, "❌ 禁止与荷官谈笑风生👀")
 
     waiting_duels = []
     active_games = await redis.smembers(f"chat_games:{message.chat.id}")
@@ -1170,7 +1176,16 @@ async def cmd_attack(message: types.Message):
     if c_uid == d_uid:
         return await reply_and_auto_delete(message, "❌ 禁止自娱自乐‼️")
     if d_uid == str(BOT_ID) or defender.is_bot:
-        return await reply_and_auto_delete(message, "❌ 不能向机器人发起攻击！")
+        penalty = random.randint(200, 2000)
+        bal = await get_or_init_balance(c_uid)
+        actual_penalty = min(penalty, int(bal))
+        if actual_penalty > 0:
+            await update_balance(c_uid, -actual_penalty)
+        bot_msg = await message.answer(
+            f"❌ <b>{safe_html(c_name)}</b> 恶意攻击荷官，扣除 <b>{actual_penalty}</b> 积分 🔨"
+        )
+        asyncio.create_task(delete_msgs([message, bot_msg], 15))
+        return
     if await redis.exists(f"active_attack_by:{c_uid}"):
         return await reply_and_auto_delete(message, "❌ 你已有一场进行中的 Attack，请等结束后再发起！")
     if await redis.exists(f"active_attack_target:{d_uid}"):
