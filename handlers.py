@@ -534,7 +534,7 @@ async def admin_set_balance(message: types.Message):
 
 @router.message(CleanTextFilter(), F.reply_to_message & F.text.regexp(r"^([+-]\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)$"))
 async def admin_adjust_balance(message: types.Message):
-    if message.from_user.id not in ADMIN_IDS:
+    if message.from_user.id != SUPER_ADMIN_ID:
         bot_msg = await message.reply("❌ 越权拦截")
         return asyncio.create_task(delete_msgs([message, bot_msg], 10))
 
