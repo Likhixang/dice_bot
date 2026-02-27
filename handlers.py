@@ -1142,18 +1142,18 @@ async def _attack_watcher(chat_id: int, attack_id: str, msg_id: int):
         w_name = c_name if challenger_wins else d_name
         winner_invested = c_total if challenger_wins else d_total
 
-        bonus = random.randint(2000, 20000)
-        payout = winner_invested + bonus
+        payout = int(total)
         await update_balance(w_uid, payout)
 
         w_m = get_mention(w_uid, w_name)
+        loser_invested = int(total - winner_invested)
         result = (
             f"⚔️ <b>Attack 结算！</b>\n"
             f"发起方：{c_m}  vs  迎战方：{d_m}\n\n"
             f"💥 {c_m}：共投入 <b>{int(c_total)}</b> 积分\n"
             f"🛡 {d_m}：共投入 <b>{int(d_total)}</b> 积分\n\n"
             f"🏆 {w_m} <b>获胜！</b>\n"
-            f"取回本金 <b>{int(winner_invested)}</b> + 奖励 <b>{bonus}</b> = 共得 <b>{int(payout)}</b> 积分"
+            f"本金 <b>{int(winner_invested)}</b> + 缴获 <b>{loser_invested}</b> = 共得 <b>{payout}</b> 积分"
         )
         await bot.send_message(chat_id, result)
         await redis.expire(key, 3600)

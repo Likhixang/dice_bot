@@ -21,7 +21,7 @@ if not ADMIN_IDS:
 
 # 每次停机修复后更新此处，停机补偿公告会自动带上本次修复说明
 LAST_FIX_DESC = (
-    "• 送礼/1v1/attack 机器人均有惩罚：送礼没收礼品、1v1拦截、attack扣200-2000随机积分"
+    "• /attack 结算改为零和：赢家拿走双方总投入，不再凭空产生奖励积分"
 )
 
 TZ_BJ = datetime.timezone(datetime.timedelta(hours=8))
