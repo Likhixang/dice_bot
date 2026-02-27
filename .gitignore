@@ -1,0 +1,12 @@
+# 敏感配置（绝对不上传）
+.env
+.claude/
+
+# 用户数据
+backup.db
+redis_data/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo

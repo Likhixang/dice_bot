@@ -1,0 +1,183 @@
+# 🎲 骰子竞技场 Telegram Bot
+
+一个功能完整的 Telegram 骰子竞技群聊 Bot，支持多种对局模式、积分红包、排行榜、节日彩蛋等，基于 aiogram 3 + Redis + Docker 构建。
+
+---
+
+## 功能概览
+
+### 对局系统（4 种模式）
+| 模式 | 发起方式 | 说明 |
+|------|----------|------|
+| 普通双人局 | `大100 3` | 等待任意 1 人接单，立刻开局 |
+| 指定单挑局 | 回复对手消息发 `大100 3` | 只有被回复者能接，1 分钟超时退款 |
+| 多人拼车局 | `大100 3 多` | 2-5 人皆可，有人进就触发 15 秒倒计时 |
+| 定员死等局 | `大100 3 多 4` | 死等凑齐指定人数才发车 |
+
+- 支持 1-5 颗骰子，填 0 积分即为友谊赛
+- 平局自动触发加赛直至分出胜负
+- 落跑机制：投掷超时自动判负
+
+### 积分与红包
+- **每日签到**：随机 100-1000 积分，连续 5 天额外 +20000
+- **赠送积分**：`/gift 金额` 回复指定玩家转账
+- **拼手气红包**：`/redpack 总额 个数`，随机金额，按钮秒抢
+- **口令红包**：`/redpack_pw 总额 个数 口令`，发出口令才能领
+- **骰子口令红包**：口令设为 `🎲`，参与骰子局时自动触发
+
+### 排行榜
+- `/rank` `/rank_week` `/rank_month`：今日 / 本周 / 本月榜
+- 支持切换「胜负榜（总赢/总亏）」和「净胜负榜（净赢家 TOP5 + 净亏损 TOP5）」
+- 每日 00:01 自动播报昨日战况，上榜玩家各奖励 +500 积分
+
+### 自动化任务
+- 每小时自动备份积分数据到 SQLite（`backup.db`）
+- 每天 12:00 检测节假日（元旦、春节、端午、七夕、中秋……20+ 节日），触发全员积分彩蛋并置顶公告至 17:00
+- 每周一 10:00 自动向所有活跃群发送帮助指南并置顶
+
+### 管理功能
+- 管理员强杀异常对局：`/forced_stop`
+- 超管手动备份/恢复：`/backup_db`、`/restore_db`
+- 超管调账（覆写）：回复某人消息发 `let 金额`
+- 管理员调账（增减）：回复某人消息发 `+金额` 或 `-金额`
+- 停机补偿：超管发 `停机补偿<更新内容>` → 全员 +500 积分，置顶 30 分钟
+
+---
+
+## 技术架构
+
+```
+aiogram 3 (Telegram Bot 框架)
+  └─ Redis (主存储，积分/对局/排行榜/红包)
+  └─ SQLite backup.db (灾备，每小时同步)
+  └─ Docker Compose (一键部署)
+```
+
+### 模块结构
+```
+config.py      # 环境变量、常量、并发锁
+core.py        # bot/dp/redis 实例
+utils.py       # 工具函数
+balance.py     # 积分读写、排行榜周期 key
+tasks.py       # 定时任务（备份/战报/节日彩蛋/每周 help）
+redpack.py     # 红包系统
+game_settle.py # 结算/投掷逻辑
+game.py        # 游戏流程管理
+handlers.py    # 所有 /指令 和 callback 注册
+bot.py         # 入口、黑洞路由、main()
+```
+
+---
+
+## 部署教程
+
+### 1. 前置准备
+
+- Docker + Docker Compose（推荐 Docker Desktop 或服务器安装）
+- 一个 Telegram Bot Token（向 [@BotFather](https://t.me/BotFather) 申请）
+- 把 Bot 加入群组并赋予**管理员权限**（需要置顶/删除消息权限）
+
+### 2. 克隆项目
+
+```bash
+git clone https://github.com/你的用户名/dice_bot.git
+cd dice_bot
+```
+
+### 3. 配置环境变量
+
+复制模板文件并填入真实值：
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env`：
+
+```env
+BOT_TOKEN=你的BotToken
+BOT_ID=你的Bot数字ID
+SUPER_ADMIN_ID=你的Telegram数字UID
+ADMIN_IDS=UID1,UID2,UID3
+```
+
+> **如何获取 Telegram 数字 ID？** 向 [@userinfobot](https://t.me/userinfobot) 发送任意消息即可看到你的 UID。
+
+### 4. 启动
+
+```bash
+docker compose up -d
+```
+
+首次启动会自动拉取镜像并安装依赖，约需 1-2 分钟。
+
+查看运行日志：
+
+```bash
+docker logs dice_bot -f
+```
+
+### 5. 停止 / 重启
+
+```bash
+docker compose down        # 停止
+docker restart dice_bot    # 重启 bot（修改 .py 文件后生效）
+docker compose up -d       # 重新拉起（修改 .env 后需用此命令）
+```
+
+> 项目使用 volume 挂载整目录（`.:/app`），修改任何 `.py` 文件后只需 `docker restart dice_bot` 即可，无需 rebuild。
+
+---
+
+## 玩法指南
+
+发送 `/help` 查看完整指令列表。
+
+### 快速上手
+
+1. 进入群组后发送 `/checkin` 签到获取初始积分
+2. 发送 `大100 3`（押大，100 积分，3 颗骰子）发起对局
+3. 有人点击「接单」按钮后双方依次投掷
+4. 骰子点数之和：**大 = 11-18，小 = 3-10**（三颗豹子特殊结算）
+5. 胜者获得全部押注，败者扣除押注
+
+### 结算规则
+
+| 人数 | 结算分配 |
+|------|----------|
+| 2 人 | 赢家 +总注，败者 -总注 |
+| 3 人 | 第1 +总注，第2 ±0，第3 -总注 |
+| 4 人 | 第1 +总注，第2 +总注/2，第3 -总注/2，第4 -总注 |
+| 5 人 | 第1 +总注，第2 +总注/2，第3 ±0，第4 -总注/2，第5 -总注 |
+
+---
+
+## 常见问题
+
+**Q: Bot 没有响应？**
+检查 Bot 是否有管理员权限，以及 `.env` 中的 `BOT_TOKEN` 是否正确。
+
+**Q: Redis 数据丢了？**
+超管发送 `/restore_db` 可从 `backup.db` 恢复最近一次备份数据。
+
+**Q: 修改了代码不生效？**
+运行 `docker restart dice_bot`。如果修改了 `.env`，需要 `docker compose up -d`。
+
+**Q: 农历节日彩蛋没有触发？**
+需要确保 `requirements.txt` 中包含 `lunardate`，并执行过 `docker compose up --build -d` 重新构建镜像。
+
+---
+
+## 依赖
+
+```
+aiogram==3.4.1
+redis==5.0.1
+lunardate==2.0.1
+```
+
+---
+
+## License
+
+MIT
