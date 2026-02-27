@@ -135,10 +135,11 @@ async def start_rolling_phase(chat_id: int, game_id: str, game_data: dict):
     first_uid = players[0]
     mention = get_mention(first_uid, names[first_uid])
     rule_desc = f"比{game_data['direction']}局 · 押注 {amount:g}/人 · 同点加成 · 顺子翻倍"
+    player_list_str = "、".join([get_mention(p, names[p]) for p in players])
 
     msg = await bot.send_message(
         chat_id,
-        f"🚦 <b>发车！{len(players)}人局</b>\n<i>{rule_desc}</i>\n\n👉 请 {mention} 投出 <b>{dice_count}</b> 颗骰子！",
+        f"🚦 <b>发车！{len(players)}人局</b>\n<i>{rule_desc}</i>\n👥 {player_list_str}\n\n👉 请 {mention} 投出 <b>{dice_count}</b> 颗骰子！",
         reply_markup=get_roll_keyboard(game_id, first_uid)
     )
     await redis.rpush(f"game_msgs:{game_id}", msg.message_id)

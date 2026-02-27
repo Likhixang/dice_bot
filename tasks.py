@@ -313,7 +313,7 @@ async def noon_event_task():
             short_desc = re.sub(r"<[^>]+>", "", short_desc).strip()  # 去 HTML 标签
             record = json.dumps({"ts": ts_now, "type": "easter_egg", "desc": short_desc, "bonus": amt, "count": len(uids)}, ensure_ascii=False)
             await redis.lpush("event_log", record)
-        await redis.ltrim("event_log", 0, 29)
+        await redis.ltrim("event_log", 0, 199)
 
         text_parts = "\n\n".join(f"{msg}\n🎁 全员 <b>+{amt}</b> 积分！" for msg, amt in events)
         announce_text = f"🎊 <b>【系统彩蛋触发！】</b>\n\n{text_parts}\n\n✅ 已自动发放给 <b>{len(uids)}</b> 名玩家！"

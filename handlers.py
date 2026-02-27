@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import json
 import logging
+import math
 import random
 import re
 import sqlite3
@@ -14,7 +15,7 @@ from aiogram.filters import Command
 from config import BOT_ID, SUPER_ADMIN_ID, ADMIN_IDS, TZ_BJ, PATTERN, LAST_FIX_DESC, get_lock
 from core import bot, redis, CleanTextFilter
 from utils import (get_mention, safe_html, delete_msgs, delete_msg_by_id,
-                   reply_and_auto_delete, safe_zrevrange, safe_zrange)
+                   reply_and_auto_delete, safe_zrevrange, safe_zrange, delete_msgs_by_ids)
 from balance import get_or_init_balance, update_balance, get_period_keys
 from tasks import perform_backup
 from game import start_game_creation, start_rolling_phase, rank_panel_watcher, refund_game
@@ -125,27 +126,65 @@ async def cmd_help(message: types.Message):
     asyncio.create_task(delete_msgs([message, bot_msg], 60))
 
 
-@router.message(CleanTextFilter(), Command("event"))
-async def cmd_event(message: types.Message):
-    raw_records = await redis.lrange("event_log", 0, 4)
-    if not raw_records:
-        bot_msg = await message.reply("📭 <b>暂无事件记录</b>\n彩蛋或停机补偿触发后会在这里留档。")
-        asyncio.create_task(delete_msgs([message, bot_msg], 30))
-        return
-
-    lines = ["📋 <b>【最近系统事件】</b>\n"]
-    for i, raw in enumerate(raw_records):
+async def get_event_page(page: int, uid: str):
+    """返回 (text, markup)，markup=None 表示单页无按钮"""
+    all_raw = await redis.lrange("event_log", 0, -1)
+    cutoff = time.time() - 86400
+    valid = []
+    for raw in all_raw:
         try:
             r = json.loads(raw)
+            if r.get("ts", 0) >= cutoff:
+                valid.append(r)
         except Exception:
             continue
+    total = len(valid)
+    per_page = 5
+    total_pages = max(1, math.ceil(total / per_page))
+    page = max(0, min(page, total_pages - 1))
+    chunk = valid[page * per_page: page * per_page + per_page]
+    if not chunk:
+        return "📭 <b>过去24小时暂无系统事件</b>", None
+    header = f"📋 <b>【过去24小时系统事件】</b>"
+    if total_pages > 1:
+        header += f" ({page + 1}/{total_pages})"
+    lines = [header, ""]
+    for r in chunk:
         dt = datetime.datetime.fromtimestamp(r["ts"], tz=TZ_BJ).strftime("%m/%d %H:%M")
         icon = "🔧" if r["type"] == "compensation" else "🎊"
         lines.append(f"{icon} <b>{r['desc']}</b>")
-        lines.append(f"    ⏰ {dt} | 全员 <b>+{r['bonus']}</b> | 惠及 <b>{r['count']}</b> 人\n")
+        lines.append(f"    ⏰ {dt} | 全员 <b>+{r['bonus']}</b> | 惠及 <b>{r['count']}</b> 人")
+        lines.append("")
+    text = "\n".join(lines).strip()
+    if total_pages <= 1:
+        return text, None
+    btns = []
+    if page > 0:
+        btns.append(types.InlineKeyboardButton(text="◀️ 上一页", callback_data=f"ev_p:{uid}:{page - 1}"))
+    if page < total_pages - 1:
+        btns.append(types.InlineKeyboardButton(text="下一页 ▶️", callback_data=f"ev_p:{uid}:{page + 1}"))
+    return text, types.InlineKeyboardMarkup(inline_keyboard=[btns]) if btns else None
 
-    bot_msg = await message.reply("\n".join(lines))
-    asyncio.create_task(delete_msgs([message, bot_msg], 60))
+
+async def event_panel_watcher(chat_id: int, msg_id: int, cmd_msg_id: int):
+    while True:
+        await asyncio.sleep(5)
+        ttl = await redis.ttl(f"event_msg:{chat_id}:{msg_id}")
+        if ttl <= 0:
+            asyncio.create_task(delete_msgs_by_ids(chat_id, [msg_id, cmd_msg_id]))
+            break
+
+
+@router.message(CleanTextFilter(), Command("event"))
+async def cmd_event(message: types.Message):
+    uid = str(message.from_user.id)
+    text, markup = await get_event_page(0, uid)
+    bot_msg = await message.reply(text, reply_markup=markup)
+    if markup:
+        await redis.setex(f"event_msg:{message.chat.id}:{bot_msg.message_id}", 60, "1")
+        asyncio.create_task(event_panel_watcher(message.chat.id, bot_msg.message_id, message.message_id))
+    else:
+        asyncio.create_task(delete_msgs([message, bot_msg], 60))
 
 
 @router.message(CleanTextFilter(), Command("backup_db"))
@@ -826,6 +865,31 @@ async def handle_grab_rp(callback: types.CallbackQuery):
     if len(users_data) >= int(meta.get('count', 0)):
         if meta.get('msg_id'):
             asyncio.create_task(delete_msg_by_id(callback.message.chat.id, int(meta['msg_id']), delay=60))
+
+
+@router.callback_query(F.data.startswith("ev_p:"))
+async def handle_event_page_cb(callback: types.CallbackQuery):
+    parts = callback.data.split(":")
+    if len(parts) < 3:
+        return await callback.answer()
+    initiator_uid, page = parts[1], int(parts[2])
+    if str(callback.from_user.id) != initiator_uid:
+        return await callback.answer("⚠️ 只有查询者可以翻页！", show_alert=True)
+    chat_id, msg_id = callback.message.chat.id, callback.message.message_id
+    ttl = await redis.ttl(f"event_msg:{chat_id}:{msg_id}")
+    if ttl <= 0:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        return await callback.answer("⏰ 面板已过期", show_alert=True)
+    await redis.expire(f"event_msg:{chat_id}:{msg_id}", 60)
+    text, markup = await get_event_page(page, initiator_uid)
+    try:
+        await callback.message.edit_text(text, reply_markup=markup)
+    except Exception:
+        pass
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("r1:") | F.data.startswith("ra:"))

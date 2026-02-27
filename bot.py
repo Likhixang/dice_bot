@@ -7,11 +7,12 @@ from aiogram import F, Router
 
 from config import LAST_FIX_DESC, SUPER_ADMIN_ID
 from core import bot, dp, redis, CleanTextFilter
-from utils import delete_msgs
+from utils import delete_msgs, delete_msg_by_id
 from balance import update_balance
 from tasks import daily_backup_task, daily_report_task, noon_event_task, weekly_help_task
 from redpack import redpack_expiry_watcher, attempt_claim_pw_redpack, refresh_dice_panel
 from game_settle import process_dice_value
+from game import refund_game
 from handlers import router as handlers_router
 
 # ==============================
@@ -43,6 +44,76 @@ async def handle_pw_redpack_text(message):
     if not text:
         return
 
+    # ── 停机维护（超管专属，精确匹配）──
+    if text == "停机维护" and message.from_user.id == SUPER_ADMIN_ID:
+        asyncio.create_task(delete_msgs([message], 0))
+        # 1. 全群退款对局
+        active_groups = await redis.smembers("active_groups")
+        destroyed = 0
+        for cid_str in active_groups:
+            for gid in list(await redis.smembers(f"chat_games:{cid_str}")):
+                try:
+                    await refund_game(int(cid_str), gid)
+                    destroyed += 1
+                except Exception as e:
+                    logging.warning(f"[maintenance] refund {gid}: {e}")
+        # 2. 退回所有活跃 pw 红包
+        active_rps = await redis.smembers("active_pw_rps")
+        rp_refunded = 0
+        affected_rp_chats = set()
+        for rp_id in list(active_rps):
+            meta = await redis.hgetall(f"redpack_meta:{rp_id}")
+            if not meta:
+                await redis.srem("active_pw_rps", rp_id)
+                continue
+            amounts = await redis.lrange(f"redpack_list:{rp_id}", 0, -1)
+            total = sum(float(a) for a in amounts)
+            if total > 0 and (sid := meta.get("sender_uid")):
+                await update_balance(sid, total)
+            cid_rp = meta.get("chat_id", "")
+            mid_rp = meta.get("msg_id", "0")
+            if cid_rp:
+                affected_rp_chats.add(cid_rp)
+            if cid_rp and mid_rp and int(mid_rp) > 0:
+                asyncio.create_task(delete_msg_by_id(int(cid_rp), int(mid_rp)))
+            await redis.delete(f"redpack_meta:{rp_id}", f"redpack_list:{rp_id}")
+            await redis.srem("active_pw_rps", rp_id)
+            rp_refunded += 1
+        # 3. 清理骰子聚合面板
+        for cid_dc in affected_rp_chats:
+            panel = await redis.get(f"dice_panel_msg:{cid_dc}")
+            if panel:
+                try:
+                    await bot.delete_message(int(cid_dc), int(panel))
+                except Exception:
+                    pass
+                await redis.delete(f"dice_panel_msg:{cid_dc}")
+        # 4. 先解钉旧公告（补偿或上一次维护）
+        for old_key in [f"compensation_pin:{message.chat.id}", f"maintenance_pin:{message.chat.id}"]:
+            old_id = await redis.get(old_key)
+            if old_id:
+                try:
+                    await bot.unpin_chat_message(chat_id=message.chat.id, message_id=int(old_id))
+                except Exception:
+                    pass
+                try:
+                    await bot.delete_message(chat_id=message.chat.id, message_id=int(old_id))
+                except Exception:
+                    pass
+                await redis.delete(old_key)
+        # 5. 发维护公告并置顶
+        body = (f"🔧 <b>【停机维护公告】</b>\n\n系统即将进行维护，暂时停止服务。\n"
+                f"• 已销毁 <b>{destroyed}</b> 个进行中对局并全额退款\n"
+                f"• 已退回 <b>{rp_refunded}</b> 个未过期红包\n\n"
+                f"维护完成后将置顶「停机补偿」公告并发放补偿积分，感谢耐心等待！")
+        announce = await bot.send_message(message.chat.id, body)
+        try:
+            await bot.pin_chat_message(chat_id=message.chat.id, message_id=announce.message_id, disable_notification=False)
+        except Exception as e:
+            logging.warning(f"[maintenance] 置顶失败: {e}")
+        await redis.set(f"maintenance_pin:{message.chat.id}", str(announce.message_id))
+        return
+
     # ── 停机补偿（超管专属）──
     if text.startswith("停机补偿") and message.from_user.id == SUPER_ADMIN_ID:
         extra_desc = text[4:].strip()  # 取"停机补偿"后面的自定义说明
@@ -51,8 +122,20 @@ async def handle_pw_redpack_text(message):
             await update_balance(uid, 500)
         record = json.dumps({"ts": int(time.time()), "type": "compensation", "desc": extra_desc or "停机补偿", "bonus": 500, "count": len(uids)}, ensure_ascii=False)
         await redis.lpush("event_log", record)
-        await redis.ltrim("event_log", 0, 29)
+        await redis.ltrim("event_log", 0, 199)
         asyncio.create_task(delete_msgs([message], 0))
+        # 旧维护公告（如有）先解钉+删除
+        old_maint_id = await redis.get(f"maintenance_pin:{message.chat.id}")
+        if old_maint_id:
+            try:
+                await bot.unpin_chat_message(chat_id=message.chat.id, message_id=int(old_maint_id))
+            except Exception:
+                pass
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=int(old_maint_id))
+            except Exception:
+                pass
+            await redis.delete(f"maintenance_pin:{message.chat.id}")
         old_comp_msg_id = await redis.get(f"compensation_pin:{message.chat.id}")
         if old_comp_msg_id:
             try:
