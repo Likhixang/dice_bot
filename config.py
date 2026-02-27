@@ -21,7 +21,7 @@ if not ADMIN_IDS:
 
 # 每次停机修复后更新此处，停机补偿公告会自动带上本次修复说明
 LAST_FIX_DESC = (
-    "• 每周一 10:00 自动发送帮助指南并置顶，防止被群组7天消息清理淹没"
+    "• 修复竞态 bug：按钮投骰子期间若同时手动投骰触发结算，机器人的骰子消息不再被误删"
 )
 
 TZ_BJ = datetime.timezone(datetime.timedelta(hours=8))

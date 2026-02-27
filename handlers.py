@@ -934,5 +934,3 @@ async def handle_roll_button(callback: types.CallbackQuery):
         if await redis.exists(game_key):
             await redis.hincrby(game_key, f"pending_{uid}", -1)
             await process_dice_value(callback.message.chat.id, game_id, uid, dice_msg.dice.value, dice_msg.message_id)
-        else:
-            asyncio.create_task(delete_msg_by_id(callback.message.chat.id, dice_msg.message_id))
