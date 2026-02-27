@@ -9,8 +9,9 @@ import sqlite3
 import time
 import uuid
 
-from aiogram import Router, F, types
+from aiogram import Router, F, types, BaseMiddleware
 from aiogram.filters import Command
+from typing import Callable, Dict, Any, Awaitable
 
 from config import BOT_ID, SUPER_ADMIN_ID, ADMIN_IDS, TZ_BJ, PATTERN, LAST_FIX_DESC, get_lock
 from core import bot, redis, CleanTextFilter
@@ -24,6 +25,37 @@ from redpack import (build_redpack_panel, refresh_dice_panel, attempt_claim_pw_r
                      redpack_expiry_watcher, generate_redpack_amounts)
 
 router = Router()
+
+
+# ==============================
+# 维护期全量拦截中间件
+# ==============================
+
+class MaintenanceMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler: Callable[[Any, Dict[str, Any]], Awaitable[Any]],
+        event: Any,
+        data: Dict[str, Any]
+    ) -> Any:
+        if isinstance(event, types.Message):
+            chat_id = event.chat.id
+            if await redis.exists(f"maintenance:{chat_id}"):
+                await reply_and_auto_delete(event, "🔧 <b>系统维护中</b>，暂停所有功能，请等待维护完成后再操作。")
+                return
+        elif isinstance(event, types.CallbackQuery):
+            chat_id = event.message.chat.id if event.message else None
+            if chat_id and await redis.exists(f"maintenance:{chat_id}"):
+                try:
+                    await event.answer("🔧 系统维护中，请稍后再试", show_alert=True)
+                except Exception:
+                    pass
+                return
+        return await handler(event, data)
+
+
+router.message.middleware(MaintenanceMiddleware())
+router.callback_query.middleware(MaintenanceMiddleware())
 
 
 # ==============================
@@ -234,8 +266,6 @@ async def cmd_checkin(message: types.Message):
 
 @router.message(CleanTextFilter(), Command("redpack"))
 async def cmd_redpack(message: types.Message):
-    if await redis.exists(f"maintenance:{message.chat.id}"):
-        return await reply_and_auto_delete(message, "🔧 <b>系统维护中</b>，暂停发放红包，请稍后再试。")
     args = message.text.split()
     if len(args) < 3:
         return await reply_and_auto_delete(message, "❌ 用法：`/redpack 总金额 个数`")
@@ -290,8 +320,6 @@ async def cmd_redpack(message: types.Message):
 
 @router.message(CleanTextFilter(), Command("redpack_pw"))
 async def cmd_redpack_pw(message: types.Message):
-    if await redis.exists(f"maintenance:{message.chat.id}"):
-        return await reply_and_auto_delete(message, "🔧 <b>系统维护中</b>，暂停发放红包，请稍后再试。")
     args = message.text.split(maxsplit=3)
     if len(args) < 4:
         return await reply_and_auto_delete(message, "❌ 用法：`/redpack_pw 总额 个数 口令`")
@@ -517,8 +545,6 @@ async def admin_adjust_balance(message: types.Message):
 
 @router.message(CleanTextFilter(), F.text.regexp(PATTERN))
 async def handle_bet_command(message: types.Message):
-    if await redis.exists(f"maintenance:{message.chat.id}"):
-        return await reply_and_auto_delete(message, "🔧 <b>系统维护中</b>，暂停发起对局，请稍后再试。")
     match = PATTERN.match(message.text)
     if not match:
         return

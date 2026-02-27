@@ -205,6 +205,46 @@ async def process_round_end_or_settle(chat_id: int, game_id: str, game_data: dic
                 final_text.append(f"第{i+1}名: {get_mention(p, names[p])}{p_tie_tag} | {p_rolls}={detail} ➡ <b>{score}点</b> | 盈亏: <b>{sign}{win_lose_profit:.2f}</b>")
 
         await bot.send_message(chat_id, "\n".join(final_text))
+
+        # ── 连胜/连败奖惩 ──
+        streak_notifs = []
+        for p in sorted_players:
+            win_lose_profit = player_profit_cents[p] / 100.0
+            streak_key = f"game_streak:{p}"
+            current = int(await redis.get(streak_key) or 0)
+
+            if win_lose_profit > 0:
+                new_streak = current + 1 if current > 0 else 1
+            elif win_lose_profit < 0:
+                new_streak = current - 1 if current < 0 else -1
+            else:
+                new_streak = 0  # 平局/无盈亏重置
+
+            if new_streak >= 3:
+                await update_balance(p, -200)
+                streak_notifs.append((p, names[p], "乐善好施", -200, new_streak))
+                new_streak = 0
+            elif new_streak <= -3:
+                await update_balance(p, 200)
+                streak_notifs.append((p, names[p], "同舟共济", +200, new_streak))
+                new_streak = 0
+
+            if new_streak == 0:
+                await redis.delete(streak_key)
+            else:
+                await redis.setex(streak_key, 86400 * 7, str(new_streak))
+
+        if streak_notifs:
+            lines = []
+            for p, name, title, bonus, streak_val in streak_notifs:
+                abs_streak = abs(streak_val)
+                sign = "+" if bonus > 0 else ""
+                if bonus < 0:
+                    lines.append(f"💸 <b>【{title}】</b> {get_mention(p, name)} 连赢 {abs_streak} 局，慷慨散财 <b>{sign}{bonus}</b> 积分！")
+                else:
+                    lines.append(f"🤝 <b>【{title}】</b> {get_mention(p, name)} 连败 {abs_streak} 局，系统补贴 <b>{sign}{bonus}</b> 积分！")
+            notif_msg = await bot.send_message(chat_id, "\n".join(lines))
+            asyncio.create_task(delete_msgs([notif_msg], 30))
         tie_panel_id = game_data.get("tie_panel_msg_id")
         if tie_panel_id:
             asyncio.create_task(delete_msg_by_id(chat_id, int(tie_panel_id)))

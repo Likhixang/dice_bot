@@ -88,6 +88,21 @@ async def handle_pw_redpack_text(message):
                 except Exception:
                     pass
                 await redis.delete(f"dice_panel_msg:{cid_dc}")
+        # 3b. 销毁当前群所有面板类延时消息（rank / event）
+        for pattern in [f"rank_msg:{message.chat.id}:*", f"event_msg:{message.chat.id}:*"]:
+            cursor = 0
+            while True:
+                cursor, keys = await redis.scan(cursor, match=pattern, count=100)
+                for key in keys:
+                    parts = key.split(":")
+                    if len(parts) >= 3:
+                        try:
+                            await bot.delete_message(message.chat.id, int(parts[-1]))
+                        except Exception:
+                            pass
+                    await redis.delete(key)
+                if cursor == 0:
+                    break
         # 4. 先解钉旧公告（补偿或上一次维护）
         for old_key in [f"compensation_pin:{message.chat.id}", f"maintenance_pin:{message.chat.id}"]:
             old_id = await redis.get(old_key)
