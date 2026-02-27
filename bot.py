@@ -286,7 +286,8 @@ async def main():
         tg_types.BotCommand(command="redpack_pw", description="发口令红包"),
         tg_types.BotCommand(command="rank", description="今日胜负榜"),
         tg_types.BotCommand(command="rank_week", description="本周胜负榜"),
-        tg_types.BotCommand(command="rank_month", description="本月胜负榜")
+        tg_types.BotCommand(command="rank_month", description="本月胜负榜"),
+        tg_types.BotCommand(command="attack", description="向某人发起 Attack 对决（回复消息使用）")
     ]
 
     admin_commands = base_commands + [

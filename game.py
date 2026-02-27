@@ -112,10 +112,11 @@ async def start_rolling_phase(chat_id: int, game_id: str, game_data: dict):
     if init_msg_id:
         try:
             player_list_str = "、".join([get_mention(p, names[p]) for p in players])
+            direction = game_data['direction']
             if game_data.get("game_mode") in ["multi_exact", "multi_dynamic"]:
-                txt = f"🎲 <b>组局已发车！</b>\n名单：{player_list_str}"
+                txt = f"🎲 <b>组局已发车！</b> 比{direction} · {amount:g}/人\n名单：{player_list_str}"
             else:
-                txt = f"🎯 <b>决斗已发车！</b>\n名单：{player_list_str}"
+                txt = f"🎯 <b>决斗已发车！</b> 比{direction} · {amount:g}/人\n名单：{player_list_str}"
             await bot.edit_message_text(txt, chat_id, int(init_msg_id), reply_markup=None)
         except:
             pass
@@ -299,6 +300,7 @@ async def start_game_creation(chat_id: int, uid: str, name: str, pending_data: d
         ]])
     elif game_mode == "multi_exact":
         txt = (f"🎲 <b>定员组局 (1/{target_players})</b>\n"
+               f"押注：<b>{amount:g}</b> | 骰子：<b>{dice_count}</b>颗 | 比<b>{direction}</b>\n"
                f"当前：{mention}\n死等满员👇")
         kb = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="⚔️ 接单", callback_data=f"jg:{game_id}")],
@@ -306,6 +308,7 @@ async def start_game_creation(chat_id: int, uid: str, name: str, pending_data: d
         ])
     else:  # multi_dynamic
         txt = (f"🎲 <b>多人发车 (1/5)</b>\n"
+               f"押注：<b>{amount:g}</b> | 骰子：<b>{dice_count}</b>颗 | 比<b>{direction}</b>\n"
                f"当前：{mention}\n有人进就开始15秒倒计时👇")
         kb = types.InlineKeyboardMarkup(inline_keyboard=[[
             types.InlineKeyboardButton(text="⚔️ 接单", callback_data=f"jg:{game_id}")
