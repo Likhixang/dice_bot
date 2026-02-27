@@ -1039,11 +1039,13 @@ async def handle_roll_button(callback: types.CallbackQuery):
             await process_dice_value(callback.message.chat.id, game_id, uid, dice_msg.dice.value, dice_msg.message_id)
 
 
+
 # ==============================
 # /attack 对决系统
 # ==============================
 
 ATTACK_BET = 1000
+ATTACK_MAX = 20000
 
 
 def _attack_active_text(c_uid, c_name, d_uid, d_name, c_total, d_total):
@@ -1064,96 +1066,76 @@ def _attack_markup(attack_id):
     ]])
 
 
-async def _settle_attack(chat_id: int, attack_id: str):
-    """原子结算：用 hsetnx 防止重复触发"""
-    key = f"attack:{attack_id}"
-    # 原子抢占：第一个到的才能结算
-    won_lock = await redis.hsetnx(key, "settled", "1")
-    if not won_lock:
-        return
-
-    data = await redis.hgetall(key)
-    if not data:
-        return
-
-    await redis.hset(key, "status", "ended")
-
-    c_uid = data["challenger_uid"]
-    c_name = data["challenger_name"]
-    d_uid = data["defender_uid"]
-    d_name = data["defender_name"]
-    c_total = float(data.get("challenger_total", ATTACK_BET))
-    d_total = float(data.get("defender_total", 0))
-    msg_id = int(data.get("msg_id", 0))
-
-    # 加权随机决定胜负
-    total = c_total + d_total
-    challenger_wins = random.uniform(0, total) < c_total
-
-    if challenger_wins:
-        w_uid, w_name = c_uid, c_name
-        net_gain = d_total
-    else:
-        w_uid, w_name = d_uid, d_name
-        net_gain = c_total
-
-    await update_balance(w_uid, total)
-
-    c_m = get_mention(c_uid, c_name)
-    d_m = get_mention(d_uid, d_name)
-    w_m = get_mention(w_uid, w_name)
-
-    result = (
-        f"⚔️ {c_m} vs {d_m} · <b>Attack 结算！</b>\n\n"
-        f"💥 {c_m}：共投入 <b>{int(c_total)}</b> 积分\n"
-        f"🛡 {d_m}：共投入 <b>{int(d_total)}</b> 积分\n\n"
-        f"🏆 {w_m} <b>获胜！</b>\n"
-        f"赢得 <b>{int(total)}</b> 积分（净赚 <b>+{int(net_gain)}</b>）"
-    )
-
-    try:
-        await bot.edit_message_text(result, chat_id=chat_id, message_id=msg_id, reply_markup=None)
-    except Exception:
-        try:
-            await bot.send_message(chat_id, result)
-        except Exception:
-            pass
-
-    await redis.expire(key, 3600)
-
-
 async def _attack_watcher(chat_id: int, attack_id: str, msg_id: int):
-    await asyncio.sleep(61)  # 多等1秒，确保最后一刻按钮写入完成
-
+    await asyncio.sleep(61)
     key = f"attack:{attack_id}"
-    data = await redis.hgetall(key)
-    if not data or data.get("status") != "active":
-        return
+    try:
+        # 原子抢占结算权，防止极端情况下重入
+        won_lock = await redis.hsetnx(key, "settled", "1")
+        if not won_lock:
+            return
 
-    d_total = float(data.get("defender_total", 0))
-    if d_total == 0:
-        # 防守方始终未回应 → 退款 + 销毁面板
+        data = await redis.hgetall(key)
+        if not data:
+            return
+
+        await redis.hset(key, "status", "ended")
+
         c_uid = data["challenger_uid"]
         c_name = data["challenger_name"]
+        d_uid = data["defender_uid"]
+        d_name = data["defender_name"]
         c_total = float(data.get("challenger_total", ATTACK_BET))
-        await redis.hset(key, "status", "ended")
-        await update_balance(c_uid, c_total)
-        await redis.delete(key)
+        d_total = float(data.get("defender_total", 0))
+
+        # 清除进行中标记
+        await redis.delete(f"active_attack_by:{c_uid}", f"active_attack_target:{d_uid}")
+
+        # 删除原面板
         try:
             await bot.delete_message(chat_id, msg_id)
         except Exception:
             pass
-        try:
+
+        c_m = get_mention(c_uid, c_name)
+        d_m = get_mention(d_uid, d_name)
+
+        if d_total == 0:
+            # 防守方始终未回应 → 全额退款，@挑战方通知
+            await update_balance(c_uid, c_total)
             notif = await bot.send_message(
                 chat_id,
-                f"⚔️ {get_mention(c_uid, c_name)} 的 Attack 无人应战，积分已退回。"
+                f"⚔️ {c_m}，你向 {d_m} 发起的攻击无人应战，已全额退回 <b>{int(c_total)}</b> 积分。"
             )
-            asyncio.create_task(delete_msgs([notif], 15))
-        except Exception:
-            pass
-        return
+            asyncio.create_task(delete_msgs([notif], 30))
+            await redis.delete(key)
+            return
 
-    await _settle_attack(chat_id, attack_id)
+        # 加权随机决定胜负
+        total = c_total + d_total
+        challenger_wins = random.uniform(0, total) < c_total
+        w_uid = c_uid if challenger_wins else d_uid
+        w_name = c_name if challenger_wins else d_name
+        winner_invested = c_total if challenger_wins else d_total
+
+        bonus = random.randint(2000, 20000)
+        payout = winner_invested + bonus
+        await update_balance(w_uid, payout)
+
+        w_m = get_mention(w_uid, w_name)
+        result = (
+            f"⚔️ <b>Attack 结算！</b>\n"
+            f"发起方：{c_m}  vs  迎战方：{d_m}\n\n"
+            f"💥 {c_m}：共投入 <b>{int(c_total)}</b> 积分\n"
+            f"🛡 {d_m}：共投入 <b>{int(d_total)}</b> 积分\n\n"
+            f"🏆 {w_m} <b>获胜！</b>\n"
+            f"取回本金 <b>{int(winner_invested)}</b> + 奖励 <b>{bonus}</b> = 共得 <b>{int(payout)}</b> 积分"
+        )
+        await bot.send_message(chat_id, result)
+        await redis.expire(key, 3600)
+
+    except Exception as e:
+        logging.warning(f"[attack_watcher] 结算异常 attack_id={attack_id}: {e}")
 
 
 @router.message(CleanTextFilter(), Command("attack"))
@@ -1171,6 +1153,10 @@ async def cmd_attack(message: types.Message):
         return await reply_and_auto_delete(message, "❌ 禁止自娱自乐‼️")
     if d_uid == str(BOT_ID) or defender.is_bot:
         return await reply_and_auto_delete(message, "❌ 不能向机器人发起攻击！")
+    if await redis.exists(f"active_attack_by:{c_uid}"):
+        return await reply_and_auto_delete(message, "❌ 你已有一场进行中的 Attack，请等结束后再发起！")
+    if await redis.exists(f"active_attack_target:{d_uid}"):
+        return await reply_and_auto_delete(message, f"❌ {safe_html(d_name)} 已在一场 Attack 中，请稍后再挑战！")
 
     bal = await get_or_init_balance(c_uid)
     if bal < ATTACK_BET:
@@ -1192,6 +1178,8 @@ async def cmd_attack(message: types.Message):
         "created_at": str(time.time()),
     })
     await redis.expire(f"attack:{attack_id}", 300)
+    await redis.setex(f"active_attack_by:{c_uid}", 300, attack_id)
+    await redis.setex(f"active_attack_target:{d_uid}", 300, attack_id)
 
     asyncio.create_task(delete_msgs([message], 0))
     text = _attack_active_text(c_uid, c_name, d_uid, d_name, ATTACK_BET, 0)
@@ -1212,22 +1200,26 @@ async def handle_attack_challenger(callback: types.CallbackQuery):
     if uid != data["challenger_uid"]:
         return await callback.answer("⚠️ 只有发起方可以加大力度！", show_alert=True)
 
+    c_total = float(data.get("challenger_total", ATTACK_BET))
+    if c_total >= ATTACK_MAX:
+        return await callback.answer(f"⚠️ 已达到最高投入上限 {ATTACK_MAX} 积分！", show_alert=True)
+
     bal = await get_or_init_balance(uid)
     if bal < ATTACK_BET:
         return await callback.answer(f"❌ 余额不足，需要 {ATTACK_BET} 积分，你仅有 {bal}。", show_alert=True)
 
     await update_balance(uid, -ATTACK_BET)
-    c_total = float(await redis.hincrbyfloat(key, "challenger_total", ATTACK_BET))
+    new_c = float(await redis.hincrbyfloat(key, "challenger_total", ATTACK_BET))
     d_total = float(await redis.hget(key, "defender_total") or 0)
 
     text = _attack_active_text(data["challenger_uid"], data["challenger_name"],
                                data["defender_uid"], data["defender_name"],
-                               c_total, d_total)
+                               new_c, d_total)
     try:
         await callback.message.edit_text(text, reply_markup=_attack_markup(attack_id))
     except Exception:
         pass
-    await callback.answer(f"💥 已追加 {ATTACK_BET}！你的总投入：{int(c_total)}")
+    await callback.answer(f"💥 已追加 {ATTACK_BET}！你的总投入：{int(new_c)}")
 
 
 @router.callback_query(F.data.startswith("atk_d:"))
@@ -1242,19 +1234,23 @@ async def handle_attack_defender(callback: types.CallbackQuery):
     if uid != data["defender_uid"]:
         return await callback.answer("⚠️ 只有迎战方可以回手反击！", show_alert=True)
 
+    d_total = float(data.get("defender_total", 0))
+    if d_total >= ATTACK_MAX:
+        return await callback.answer(f"⚠️ 已达到最高投入上限 {ATTACK_MAX} 积分！", show_alert=True)
+
     bal = await get_or_init_balance(uid)
     if bal < ATTACK_BET:
         return await callback.answer(f"❌ 余额不足，需要 {ATTACK_BET} 积分，你仅有 {bal}。", show_alert=True)
 
     await update_balance(uid, -ATTACK_BET)
-    d_total = float(await redis.hincrbyfloat(key, "defender_total", ATTACK_BET))
+    new_d = float(await redis.hincrbyfloat(key, "defender_total", ATTACK_BET))
     c_total = float(await redis.hget(key, "challenger_total") or ATTACK_BET)
 
     text = _attack_active_text(data["challenger_uid"], data["challenger_name"],
                                data["defender_uid"], data["defender_name"],
-                               c_total, d_total)
+                               c_total, new_d)
     try:
         await callback.message.edit_text(text, reply_markup=_attack_markup(attack_id))
     except Exception:
         pass
-    await callback.answer(f"🛡 已反击投入 {ATTACK_BET}！你的总投入：{int(d_total)}")
+    await callback.answer(f"🛡 已反击投入 {ATTACK_BET}！你的总投入：{int(new_d)}")
