@@ -44,16 +44,12 @@ class TopicRestrictionMiddleware(BaseMiddleware):
             chat = event.chat
             if chat.type not in ("group", "supergroup"):
                 return await handler(event, data)
-            if event.from_user and event.from_user.id == SUPER_ADMIN_ID:
-                return await handler(event, data)
             if chat.id != ALLOWED_CHAT_ID or event.message_thread_id != ALLOWED_THREAD_ID:
                 await reply_and_auto_delete(event, "❌ 本 bot 仅在指定话题频道内提供服务。")
                 return
         elif isinstance(event, types.CallbackQuery):
             msg = event.message
             if msg and msg.chat.type in ("group", "supergroup"):
-                if event.from_user and event.from_user.id == SUPER_ADMIN_ID:
-                    return await handler(event, data)
                 if msg.chat.id != ALLOWED_CHAT_ID or msg.message_thread_id != ALLOWED_THREAD_ID:
                     try:
                         await event.answer("❌ 本 bot 仅在指定话题频道内提供服务。", show_alert=True)
