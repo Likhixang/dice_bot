@@ -19,9 +19,15 @@ ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
 if not ADMIN_IDS:
     raise ValueError("🚫 致命阻断：环境变量中未找到 ADMIN_IDS，请检查 .env 文件！")
 
+# 话题频道限制（0 表示不限制）
+ALLOWED_CHAT_ID = int(os.getenv("ALLOWED_CHAT_ID", "0"))
+ALLOWED_THREAD_ID = int(os.getenv("ALLOWED_THREAD_ID", "0"))
+
 # 每次停机修复后更新此处，停机补偿公告会自动带上本次修复说明
 LAST_FIX_DESC = (
-    "• 服务器目录重组迁移，运行环境优化"
+    "• 停机维护时自动终止所有 Attack 并退款双方\n"
+    "• 修复对方已在对局中时仍可被发起 1v1 挑战的问题\n"
+    "• 新增话题频道限制，bot 现仅在指定话题内响应"
 )
 
 TZ_BJ = datetime.timezone(datetime.timedelta(hours=8))

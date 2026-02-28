@@ -57,7 +57,41 @@ async def handle_pw_redpack_text(message):
                     destroyed += 1
                 except Exception as e:
                     logging.warning(f"[maintenance] refund {gid}: {e}")
-        # 2. 退回所有活跃 pw 红包
+        # 2. 终止所有活跃 Attack 并退款
+        attack_refunded = 0
+        cursor = 0
+        while True:
+            cursor, keys = await redis.scan(cursor, match="active_attack_by:*", count=100)
+            for key in keys:
+                attack_id = await redis.get(key)
+                if not attack_id:
+                    continue
+                atk = await redis.hgetall(f"attack:{attack_id}")
+                if not atk:
+                    await redis.delete(key)
+                    continue
+                c_uid = atk.get("challenger_uid")
+                d_uid = atk.get("defender_uid")
+                c_total = float(atk.get("challenger_total", 0))
+                d_total = float(atk.get("defender_total", 0))
+                if c_uid and c_total > 0:
+                    await update_balance(c_uid, c_total)
+                if d_uid and d_total > 0:
+                    await update_balance(d_uid, d_total)
+                atk_chat_id = atk.get("chat_id")
+                atk_msg_id = atk.get("msg_id")
+                if atk_chat_id and atk_msg_id:
+                    try:
+                        await bot.delete_message(int(atk_chat_id), int(atk_msg_id))
+                    except Exception:
+                        pass
+                await redis.delete(f"attack:{attack_id}", key)
+                if d_uid:
+                    await redis.delete(f"active_attack_target:{d_uid}")
+                attack_refunded += 1
+            if cursor == 0:
+                break
+        # 3. 退回所有活跃 pw 红包
         active_rps = await redis.smembers("active_pw_rps")
         rp_refunded = 0
         affected_rp_chats = set()
@@ -79,7 +113,7 @@ async def handle_pw_redpack_text(message):
             await redis.delete(f"redpack_meta:{rp_id}", f"redpack_list:{rp_id}")
             await redis.srem("active_pw_rps", rp_id)
             rp_refunded += 1
-        # 3. 清理骰子聚合面板
+        # 4. 清理骰子聚合面板
         for cid_dc in affected_rp_chats:
             panel = await redis.get(f"dice_panel_msg:{cid_dc}")
             if panel:
@@ -88,7 +122,7 @@ async def handle_pw_redpack_text(message):
                 except Exception:
                     pass
                 await redis.delete(f"dice_panel_msg:{cid_dc}")
-        # 3b. 销毁当前群所有面板类延时消息（rank / event）
+        # 4b. 销毁当前群所有面板类延时消息（rank / event）
         for pattern in [f"rank_msg:{message.chat.id}:*", f"event_msg:{message.chat.id}:*"]:
             cursor = 0
             while True:
@@ -119,6 +153,7 @@ async def handle_pw_redpack_text(message):
         # 5. 发维护公告并置顶
         body = (f"🔧 <b>【停机维护公告】</b>\n\n系统即将进行维护，暂时停止服务。\n"
                 f"• 已销毁 <b>{destroyed}</b> 个进行中对局并全额退款\n"
+                f"• 已终止 <b>{attack_refunded}</b> 个 Attack 并全额退款\n"
                 f"• 已退回 <b>{rp_refunded}</b> 个未过期红包\n\n"
                 f"维护完成后将置顶「停机补偿」公告并发放补偿积分，感谢耐心等待！")
         announce = await bot.send_message(message.chat.id, body)

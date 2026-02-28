@@ -13,7 +13,7 @@ from aiogram import Router, F, types, BaseMiddleware
 from aiogram.filters import Command
 from typing import Callable, Dict, Any, Awaitable
 
-from config import BOT_ID, SUPER_ADMIN_ID, ADMIN_IDS, TZ_BJ, PATTERN, LAST_FIX_DESC, get_lock
+from config import BOT_ID, SUPER_ADMIN_ID, ADMIN_IDS, TZ_BJ, PATTERN, LAST_FIX_DESC, get_lock, ALLOWED_CHAT_ID, ALLOWED_THREAD_ID
 from core import bot, redis, CleanTextFilter
 from utils import (get_mention, safe_html, delete_msgs, delete_msg_by_id,
                    reply_and_auto_delete, safe_zrevrange, safe_zrange, delete_msgs_by_ids)
@@ -25,6 +25,42 @@ from redpack import (build_redpack_panel, refresh_dice_panel, attempt_claim_pw_r
                      redpack_expiry_watcher, generate_redpack_amounts)
 
 router = Router()
+
+
+# ==============================
+# 话题频道限制中间件
+# ==============================
+
+class TopicRestrictionMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler: Callable[[Any, Dict[str, Any]], Awaitable[Any]],
+        event: Any,
+        data: Dict[str, Any]
+    ) -> Any:
+        if not ALLOWED_CHAT_ID:
+            return await handler(event, data)
+        if isinstance(event, types.Message):
+            chat = event.chat
+            if chat.type not in ("group", "supergroup"):
+                return await handler(event, data)
+            if event.from_user and event.from_user.id == SUPER_ADMIN_ID:
+                return await handler(event, data)
+            if chat.id != ALLOWED_CHAT_ID or event.message_thread_id != ALLOWED_THREAD_ID:
+                await reply_and_auto_delete(event, "❌ 本 bot 仅在指定话题频道内提供服务。")
+                return
+        elif isinstance(event, types.CallbackQuery):
+            msg = event.message
+            if msg and msg.chat.type in ("group", "supergroup"):
+                if event.from_user and event.from_user.id == SUPER_ADMIN_ID:
+                    return await handler(event, data)
+                if msg.chat.id != ALLOWED_CHAT_ID or msg.message_thread_id != ALLOWED_THREAD_ID:
+                    try:
+                        await event.answer("❌ 本 bot 仅在指定话题频道内提供服务。", show_alert=True)
+                    except Exception:
+                        pass
+                    return
+        return await handler(event, data)
 
 
 # ==============================
@@ -54,6 +90,8 @@ class MaintenanceMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
+router.message.middleware(TopicRestrictionMiddleware())
+router.callback_query.middleware(TopicRestrictionMiddleware())
 router.message.middleware(MaintenanceMiddleware())
 router.callback_query.middleware(MaintenanceMiddleware())
 
@@ -136,7 +174,7 @@ async def cmd_help(message: types.Message):
 （只等1人，有人点按钮立刻发车）
 
 • <b>指定单挑局</b>：回复对手的消息发送 <code>大100 3</code>
-（只准他接单，1分钟不理你自动退回积分）
+（只准他接单，1分钟不理你自动退回积分；对方已在对局中则无法发起）
 
 • <b>多人拼车局</b>：发送 <code>大100 3 多</code>
 （2到5人都能玩。有人进就触发15秒倒计时，满5人瞬间发车）
@@ -157,7 +195,7 @@ async def cmd_help(message: types.Message):
 • 发起时先扣 <b>1000 积分</b>，双方可在1分钟内反复追加（每次 +1000）
 • 💥 <b>加大力度</b>：仅发起方可按   🛡 <b>回手反击</b>：仅迎战方可按
 • 投入越多赢面越大（加权随机），每人最高投入 <b>20000</b> 积分
-• 1分钟后自动结算：赢家取回本金 + 随机奖励 <b>2000–20000</b> 积分
+• 1分钟后自动结算：赢家取回本金 + 缴获对方 <b>90%</b> 投入（10% 销毁防刷）
 • 对方未回应：全额退款，原面板自动销毁
 
 🏷 <b>四、指令大全</b>
@@ -621,6 +659,8 @@ async def handle_bet_command(message: types.Message):
             return await reply_and_auto_delete(message, "❌ 禁止自娱自乐‼️")
         if target_uid == str(BOT_ID) or message.reply_to_message.from_user.is_bot:
             return await reply_and_auto_delete(message, "❌ 禁止与荷官谈笑风生👀")
+        if await redis.exists(f"user_game:{target_uid}"):
+            return await reply_and_auto_delete(message, "❌ <b>对方正在对局中</b>\n等对方结算后再发起挑战。")
 
     waiting_duels = []
     active_games = await redis.smembers(f"chat_games:{message.chat.id}")
