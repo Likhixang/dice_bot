@@ -5,7 +5,7 @@ import time
 
 from aiogram import F, Router
 
-from config import LAST_FIX_DESC, SUPER_ADMIN_ID
+from config import LAST_FIX_DESC, SUPER_ADMIN_ID, ALLOWED_CHAT_ID
 from core import bot, dp, redis, CleanTextFilter
 from utils import delete_msgs, delete_msg_by_id
 from balance import update_balance
@@ -332,10 +332,19 @@ async def main():
     ]
 
     try:
-        await bot.set_my_commands(base_commands, scope=tg_types.BotCommandScopeDefault())
-        await bot.set_my_commands(base_commands, scope=tg_types.BotCommandScopeAllGroupChats())
-        await bot.set_my_commands(base_commands, scope=tg_types.BotCommandScopeAllPrivateChats())
-        await bot.set_my_commands(admin_commands, scope=tg_types.BotCommandScopeAllChatAdministrators())
+        if ALLOWED_CHAT_ID:
+            # 清空所有全局 scope，命令只在指定群组显示
+            await bot.delete_my_commands(scope=tg_types.BotCommandScopeDefault())
+            await bot.delete_my_commands(scope=tg_types.BotCommandScopeAllGroupChats())
+            await bot.delete_my_commands(scope=tg_types.BotCommandScopeAllPrivateChats())
+            await bot.delete_my_commands(scope=tg_types.BotCommandScopeAllChatAdministrators())
+            await bot.set_my_commands(base_commands, scope=tg_types.BotCommandScopeChat(chat_id=ALLOWED_CHAT_ID))
+            await bot.set_my_commands(admin_commands, scope=tg_types.BotCommandScopeChatAdministrators(chat_id=ALLOWED_CHAT_ID))
+        else:
+            await bot.set_my_commands(base_commands, scope=tg_types.BotCommandScopeDefault())
+            await bot.set_my_commands(base_commands, scope=tg_types.BotCommandScopeAllGroupChats())
+            await bot.set_my_commands(base_commands, scope=tg_types.BotCommandScopeAllPrivateChats())
+            await bot.set_my_commands(admin_commands, scope=tg_types.BotCommandScopeAllChatAdministrators())
     except Exception as e:
         logging.warning(f"推送菜单失败: {e}")
 
