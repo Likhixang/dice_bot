@@ -6,7 +6,7 @@ import re
 import sqlite3
 import time
 
-from config import TZ_BJ, SUPER_ADMIN_ID
+from config import TZ_BJ, SUPER_ADMIN_ID, ALLOWED_THREAD_ID
 from core import bot, redis
 from utils import get_mention, safe_zrevrange, unpin_and_delete_after
 from balance import update_balance
@@ -216,7 +216,7 @@ async def daily_report_task():
         active_groups = await redis.smembers("active_groups")
         for gid in active_groups:
             try:
-                await bot.send_message(chat_id=int(gid), text=report_text)
+                await bot.send_message(chat_id=int(gid), text=report_text, message_thread_id=ALLOWED_THREAD_ID or None)
             except Exception as e:
                 await redis.srem("active_groups", gid)
                 logging.warning(f"无法向群组 {gid} 发送战报，已移除记录: {e}")
@@ -343,7 +343,7 @@ async def noon_event_task():
         active_groups = await redis.smembers("active_groups")
         for gid in list(active_groups):
             try:
-                msg = await bot.send_message(chat_id=int(gid), text=announce_text)
+                msg = await bot.send_message(chat_id=int(gid), text=announce_text, message_thread_id=ALLOWED_THREAD_ID or None)
                 try:
                     await bot.pin_chat_message(chat_id=int(gid), message_id=msg.message_id, disable_notification=False)
                 except Exception:
@@ -381,7 +381,7 @@ async def weekly_help_task():
                         pass
                     await redis.delete(f"help_pin:{gid}")
 
-                msg = await bot.send_message(chat_id=gid_int, text=HELP_TEXT)
+                msg = await bot.send_message(chat_id=gid_int, text=HELP_TEXT, message_thread_id=ALLOWED_THREAD_ID or None)
                 try:
                     await bot.pin_chat_message(chat_id=gid_int, message_id=msg.message_id, disable_notification=True)
                 except Exception:
