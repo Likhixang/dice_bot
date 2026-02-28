@@ -6,6 +6,7 @@ import time
 from aiogram import types
 
 from core import bot, redis
+from config import ALLOWED_THREAD_ID
 from utils import get_mention, safe_html, delete_msg_by_id, delete_msgs
 from balance import update_balance
 
@@ -160,7 +161,7 @@ async def refresh_dice_panel(chat_id: int, is_resume: bool = False):
             # 忽略 not modified 避免刷屏
             if "not modified" not in str(e).lower():
                 try:
-                    msg = await bot.send_message(chat_id, panel_text)
+                    msg = await bot.send_message(chat_id, panel_text, message_thread_id=ALLOWED_THREAD_ID or None)
                     await redis.set(f"dice_panel_msg:{chat_id}", str(msg.message_id))
                     try:
                         await bot.pin_chat_message(chat_id=chat_id, message_id=msg.message_id, disable_notification=True)
@@ -170,7 +171,7 @@ async def refresh_dice_panel(chat_id: int, is_resume: bool = False):
                     logging.warning(f"[dice_panel] 发送面板失败(fallback): {e2}")
     else:
         try:
-            msg = await bot.send_message(chat_id, panel_text)
+            msg = await bot.send_message(chat_id, panel_text, message_thread_id=ALLOWED_THREAD_ID or None)
             await redis.set(f"dice_panel_msg:{chat_id}", str(msg.message_id))
             try:
                 await bot.pin_chat_message(chat_id=chat_id, message_id=msg.message_id, disable_notification=True)
@@ -321,7 +322,7 @@ async def suspend_dice_redpacks(chat_id: int):
             asyncio.create_task(delete_msg_by_id(chat_id, int(old_msg_id)))
             await redis.delete(f"dice_panel_msg:{chat_id}")
 
-        msg = await bot.send_message(chat_id, f"⏸ <b>红包保护系统</b>\n因对局已开启，当前群内 <b>{suspended_count}</b> 个「🎲」红包已被自动挂起保护。\n将在赌桌清空后自动合并重发！")
+        msg = await bot.send_message(chat_id, f"⏸ <b>红包保护系统</b>\n因对局已开启，当前群内 <b>{suspended_count}</b> 个「🎲」红包已被自动挂起保护。\n将在赌桌清空后自动合并重发！", message_thread_id=ALLOWED_THREAD_ID or None)
         asyncio.create_task(delete_msgs([msg], 15))
 
 

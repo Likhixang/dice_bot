@@ -5,7 +5,7 @@ import uuid
 
 from aiogram import types
 
-from config import game_locks
+from config import game_locks, ALLOWED_THREAD_ID
 from core import bot, redis
 from utils import get_mention, delete_msg_by_id, delete_msgs, delete_msgs_by_ids
 from balance import update_balance, release_user_locks, get_or_init_balance
@@ -59,13 +59,13 @@ async def check_and_destroy_timeout(chat_id: int, game_id: str):
 
     if game_mode == "targeted":
         initiator = players[0]
-        msg = await bot.send_message(chat_id, f"⏰ 对方 未在1分钟内应答，{get_mention(initiator, names[initiator])} 的指定对战已自动销毁，押金退回。")
+        msg = await bot.send_message(chat_id, f"⏰ 对方 未在1分钟内应答，{get_mention(initiator, names[initiator])} 的指定对战已自动销毁，押金退回。", message_thread_id=ALLOWED_THREAD_ID or None)
     elif game_mode == "multi_exact":
         initiator = players[0]
-        msg = await bot.send_message(chat_id, f"⏰ {get_mention(initiator, names[initiator])} 的发车未在规定时间内达到指定人数，对局作废，押金退回。")
+        msg = await bot.send_message(chat_id, f"⏰ {get_mention(initiator, names[initiator])} 的发车未在规定时间内达到指定人数，对局作废，押金退回。", message_thread_id=ALLOWED_THREAD_ID or None)
     else:
         mentions = " ".join([get_mention(uid, names.get(uid, "未知")) for uid in players])
-        msg = await bot.send_message(chat_id, f"💥 <b>发车超时/人员流失强制解散</b>\n{mentions}\n押金已全额退回！")
+        msg = await bot.send_message(chat_id, f"💥 <b>发车超时/人员流失强制解散</b>\n{mentions}\n押金已全额退回！", message_thread_id=ALLOWED_THREAD_ID or None)
     asyncio.create_task(delete_msgs([msg], 10))
 
 
@@ -105,7 +105,7 @@ async def start_rolling_phase(chat_id: int, game_id: str, game_data: dict):
         if cmd_msg_id:
             asyncio.create_task(delete_msg_by_id(chat_id, int(cmd_msg_id), 10))
         await refund_game(chat_id, game_id)
-        msg = await bot.send_message(chat_id, f"❌ <b>封车阻断：精度溢出</b>\n尾数为奇数分的金额 ({amount}) 在 {len(players)} 人局结算会导致残余死账。本局已作废并退款！")
+        msg = await bot.send_message(chat_id, f"❌ <b>封车阻断：精度溢出</b>\n尾数为奇数分的金额 ({amount}) 在 {len(players)} 人局结算会导致残余死账。本局已作废并退款！", message_thread_id=ALLOWED_THREAD_ID or None)
         asyncio.create_task(delete_msgs([msg], 10))
         return
 
@@ -141,7 +141,8 @@ async def start_rolling_phase(chat_id: int, game_id: str, game_data: dict):
     msg = await bot.send_message(
         chat_id,
         f"🚦 <b>发车！{len(players)}人局</b>\n<i>{rule_desc}</i>\n👥 {player_list_str}\n\n👉 请 {mention} 投出 <b>{dice_count}</b> 颗骰子！",
-        reply_markup=get_roll_keyboard(game_id, first_uid)
+        reply_markup=get_roll_keyboard(game_id, first_uid),
+        message_thread_id=ALLOWED_THREAD_ID or None
     )
     await redis.rpush(f"game_msgs:{game_id}", msg.message_id)
     asyncio.create_task(rolling_timeout_watcher(chat_id, game_id))
@@ -191,7 +192,7 @@ async def rolling_timeout_watcher(chat_id: int, game_id: str):
                         escaped_list.append(uid)
                         await redis.hset(game_key, "escaped_players", json.dumps(escaped_list))
 
-                    msg = await bot.send_message(chat_id, f"⏰ {get_mention(uid, names[uid])} 投掷严重超时，已标记为逃跑并垫底！")
+                    msg = await bot.send_message(chat_id, f"⏰ {get_mention(uid, names[uid])} 投掷严重超时，已标记为逃跑并垫底！", message_thread_id=ALLOWED_THREAD_ID or None)
                     asyncio.create_task(delete_msgs([msg], 10))
 
                     for _ in range(rem):
@@ -210,7 +211,8 @@ async def rolling_timeout_watcher(chat_id: int, game_id: str):
                         msg = await bot.send_message(
                             chat_id,
                             f"⚠️ <b>催投警告 · 比{_dir} · {_amt:g}/人</b>\n{get_mention(uid, names[uid])} 还有 <b>30 秒</b>！请尽快投出剩余 <b>{rem}</b> 颗骰子，超时将被判负扣分！",
-                            reply_markup=get_roll_keyboard(game_id, uid)
+                            reply_markup=get_roll_keyboard(game_id, uid),
+                            message_thread_id=ALLOWED_THREAD_ID or None
                         )
                         asyncio.create_task(delete_msgs([msg], 30))
                         await redis.rpush(f"game_msgs:{game_id}", msg.message_id)
@@ -246,7 +248,7 @@ async def start_game_creation(chat_id: int, uid: str, name: str, pending_data: d
     if amount > 0:
         bal = await get_or_init_balance(uid)
         if bal < amount:
-            msg = await bot.send_message(chat_id, f"❌ <b>余额不足</b>\n需要 {amount:g}，你仅有 {bal}。")
+            msg = await bot.send_message(chat_id, f"❌ <b>余额不足</b>\n需要 {amount:g}，你仅有 {bal}。", message_thread_id=ALLOWED_THREAD_ID or None)
             asyncio.create_task(delete_msgs([msg], 10))
             return
         await update_balance(uid, -amount)
@@ -314,7 +316,7 @@ async def start_game_creation(chat_id: int, uid: str, name: str, pending_data: d
             types.InlineKeyboardButton(text="⚔️ 接单", callback_data=f"jg:{game_id}")
         ]])
 
-    init_msg = await bot.send_message(chat_id, txt, reply_markup=kb)
+    init_msg = await bot.send_message(chat_id, txt, reply_markup=kb, message_thread_id=ALLOWED_THREAD_ID or None)
     await redis.hset(game_key, "init_msg_id", str(init_msg.message_id))
     await redis.rpush(f"game_msgs:{game_id}", init_msg.message_id)
     asyncio.create_task(join_timer_watcher(chat_id, game_id))

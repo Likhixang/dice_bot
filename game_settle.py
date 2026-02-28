@@ -5,7 +5,7 @@ from collections import Counter
 
 from aiogram import types
 
-from config import game_locks, get_lock
+from config import game_locks, get_lock, ALLOWED_THREAD_ID
 from core import bot, redis
 from utils import get_mention, safe_html, delete_msg_by_id, delete_msgs, delete_msgs_by_ids
 from balance import update_balance, get_period_keys, release_user_locks
@@ -45,7 +45,7 @@ async def session_timeout_watcher(chat_id: int, session_key: str):
             lines.append(f"• {get_mention(uid, name)} 累计盈亏: <b>{sign}{prof:.2f}</b>")
 
         try:
-            board_msg = await bot.send_message(chat_id, "\n".join(lines))
+            board_msg = await bot.send_message(chat_id, "\n".join(lines), message_thread_id=ALLOWED_THREAD_ID or None)
             asyncio.create_task(delete_msgs([board_msg], 60))
         except:
             pass
@@ -204,7 +204,7 @@ async def process_round_end_or_settle(chat_id: int, game_id: str, game_data: dic
                 p_tie_tag = f" <i>(共投{len(p_rolls)}颗)</i>" if extra_rounds > 0 else ""
                 final_text.append(f"第{i+1}名: {get_mention(p, names[p])}{p_tie_tag} | {p_rolls}={detail} ➡ <b>{score}点</b> | 盈亏: <b>{sign}{win_lose_profit:.2f}</b>")
 
-        await bot.send_message(chat_id, "\n".join(final_text))
+        await bot.send_message(chat_id, "\n".join(final_text), message_thread_id=ALLOWED_THREAD_ID or None)
 
         # ── 连胜/连败奖惩 ──
         streak_notifs = []
@@ -243,7 +243,7 @@ async def process_round_end_or_settle(chat_id: int, game_id: str, game_data: dic
                     lines.append(f"💸 <b>【{title}】</b> {get_mention(p, name)} 连赢 {abs_streak} 局，慷慨散财 <b>{sign}{bonus}</b> 积分！")
                 else:
                     lines.append(f"🤝 <b>【{title}】</b> {get_mention(p, name)} 连败 {abs_streak} 局，系统补贴 <b>{sign}{bonus}</b> 积分！")
-            notif_msg = await bot.send_message(chat_id, "\n".join(lines))
+            notif_msg = await bot.send_message(chat_id, "\n".join(lines), message_thread_id=ALLOWED_THREAD_ID or None)
             asyncio.create_task(delete_msgs([notif_msg], 30))
         tie_panel_id = game_data.get("tie_panel_msg_id")
         if tie_panel_id:
@@ -286,7 +286,7 @@ async def process_round_end_or_settle(chat_id: int, game_id: str, game_data: dic
         old_tie_panel = game_data.get("tie_panel_msg_id")
         if old_tie_panel:
             asyncio.create_task(delete_msg_by_id(chat_id, int(old_tie_panel)))
-        msg = await bot.send_message(chat_id, "\n".join(msg_lines), reply_markup=get_roll_keyboard(game_id, first_uid))
+        msg = await bot.send_message(chat_id, "\n".join(msg_lines), reply_markup=get_roll_keyboard(game_id, first_uid), message_thread_id=ALLOWED_THREAD_ID or None)
         await redis.hset(game_key, "tie_panel_msg_id", str(msg.message_id))
 
 
@@ -364,7 +364,7 @@ async def process_dice_value(chat_id: int, game_id: str, uid: str, dice_value: i
                                 finished_text.append(f"{safe_html(names[p])}:{sc}点")
 
                     status_str = " | ".join(finished_text)
-                    msg = await bot.send_message(chat_id, f"✅ 赛况（比{_dir}｜{_amt:g}/人）：{status_str}\n\n👉 轮到 {get_mention(next_uid, names[next_uid])} 投掷 <b>{rem}</b> 颗！", reply_markup=get_roll_keyboard(game_id, next_uid))
+                    msg = await bot.send_message(chat_id, f"✅ 赛况（比{_dir}｜{_amt:g}/人）：{status_str}\n\n👉 轮到 {get_mention(next_uid, names[next_uid])} 投掷 <b>{rem}</b> 颗！", reply_markup=get_roll_keyboard(game_id, next_uid), message_thread_id=ALLOWED_THREAD_ID or None)
                     await redis.rpush(f"game_msgs:{game_id}", msg.message_id)
                 else:
                     await process_round_end_or_settle(chat_id, game_id, await redis.hgetall(game_key))
@@ -392,7 +392,7 @@ async def process_dice_value(chat_id: int, game_id: str, uid: str, dice_value: i
                 if next_turn < len(tie_queue[g_idx]):
                     await redis.hset(game_key, "current_turn", str(next_turn))
                     next_uid = tie_queue[g_idx][next_turn]
-                    msg = await bot.send_message(chat_id, f"✅ {safe_html(names[uid])} 加赛{sc_text}！（比{_dir}｜{_amt:g}/人）\n👉 同组并列：{get_mention(next_uid, names[next_uid])} 补投！", reply_markup=get_roll_keyboard(game_id, next_uid))
+                    msg = await bot.send_message(chat_id, f"✅ {safe_html(names[uid])} 加赛{sc_text}！（比{_dir}｜{_amt:g}/人）\n👉 同组并列：{get_mention(next_uid, names[next_uid])} 补投！", reply_markup=get_roll_keyboard(game_id, next_uid), message_thread_id=ALLOWED_THREAD_ID or None)
                     await redis.rpush(f"game_msgs:{game_id}", msg.message_id)
                 else:
                     next_group = g_idx + 1
@@ -400,7 +400,7 @@ async def process_dice_value(chat_id: int, game_id: str, uid: str, dice_value: i
                         await redis.hset(game_key, "current_tie_group", str(next_group))
                         await redis.hset(game_key, "current_turn", "0")
                         first_next_uid = tie_queue[next_group][0]
-                        msg = await bot.send_message(chat_id, f"✅ {safe_html(names[uid])} 加赛{sc_text}！（比{_dir}｜{_amt:g}/人）\n👉 下一组并列：{get_mention(first_next_uid, names[first_next_uid])} 补投！", reply_markup=get_roll_keyboard(game_id, first_next_uid))
+                        msg = await bot.send_message(chat_id, f"✅ {safe_html(names[uid])} 加赛{sc_text}！（比{_dir}｜{_amt:g}/人）\n👉 下一组并列：{get_mention(first_next_uid, names[first_next_uid])} 补投！", reply_markup=get_roll_keyboard(game_id, first_next_uid), message_thread_id=ALLOWED_THREAD_ID or None)
                         await redis.rpush(f"game_msgs:{game_id}", msg.message_id)
                     else:
                         await process_round_end_or_settle(chat_id, game_id, await redis.hgetall(game_key))

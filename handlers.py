@@ -1169,7 +1169,8 @@ async def _attack_watcher(chat_id: int, attack_id: str, msg_id: int):
             await update_balance(c_uid, c_total)
             notif = await bot.send_message(
                 chat_id,
-                f"⚔️ {c_m}，你向 {d_m} 发起的攻击无人应战，已全额退回 <b>{int(c_total)}</b> 积分。"
+                f"⚔️ {c_m}，你向 {d_m} 发起的攻击无人应战，已全额退回 <b>{int(c_total)}</b> 积分。",
+                message_thread_id=ALLOWED_THREAD_ID or None
             )
             asyncio.create_task(delete_msgs([notif], 30))
             await redis.delete(key)
@@ -1196,7 +1197,7 @@ async def _attack_watcher(chat_id: int, attack_id: str, msg_id: int):
             f"🏆 {w_m} <b>获胜！</b>\n"
             f"本金 <b>{int(winner_invested)}</b> + 缴获 <b>{captured}</b> = 共得 <b>{payout}</b> 积分"
         )
-        await bot.send_message(chat_id, result)
+        await bot.send_message(chat_id, result, message_thread_id=ALLOWED_THREAD_ID or None)
         await redis.expire(key, 3600)
 
     except Exception as e:
