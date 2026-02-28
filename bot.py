@@ -20,8 +20,8 @@ from handlers import router as handlers_router, TopicRestrictionMiddleware
 # 务必放在代码最最底部，绝不拦截上方的核心指令
 # ==============================
 blackhole_router = Router()
-blackhole_router.message.middleware(TopicRestrictionMiddleware())
-blackhole_router.callback_query.middleware(TopicRestrictionMiddleware())
+blackhole_router.message.middleware(TopicRestrictionMiddleware(silent=True))
+blackhole_router.callback_query.middleware(TopicRestrictionMiddleware(silent=True))
 
 
 async def _compensation_cleanup(chat_id: int, msg_id: int, delay: float, redis_key: str):
