@@ -25,6 +25,7 @@ ALLOWED_THREAD_ID = int(os.getenv("ALLOWED_THREAD_ID", "0"))
 
 # 每次停机修复后更新此处，停机补偿公告会自动带上本次修复说明
 LAST_FIX_DESC = (
+    "• 修正话题频道限制：所有 bot 消息现在正确发送到指定话题，不再跑去 General\n"
     "• 停机维护时自动终止所有 Attack 并退款双方\n"
     "• 修复对方已在对局中时仍可被发起 1v1 挑战的问题\n"
     "• 新增话题频道限制，bot 现仅在指定话题内响应"
