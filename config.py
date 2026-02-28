@@ -25,12 +25,7 @@ ALLOWED_THREAD_ID = int(os.getenv("ALLOWED_THREAD_ID", "0"))
 
 # 每次停机修复后更新此处，停机补偿公告会自动带上本次修复说明
 LAST_FIX_DESC = (
-    "• 修复非指定话题发命令报错、发普通消息静默忽略\n"
-    "• 修复「禁止自娱自乐」误触：话题频道内正常发指令不再被误判为回复自己\n"
-    "• 修复所有 bot 消息正确发送到指定话题，红包/Attack 公告不再跑去 General\n"
-    "• 停机维护时自动终止所有 Attack 并退款双方\n"
-    "• 修复对方已在对局中时仍可被发起 1v1 挑战的问题\n"
-    "• 新增话题频道限制，bot 现仅在指定话题内响应"
+    "• 修复停机补偿置顶不会自动消失的问题（重启后清理协程丢失）"
 )
 
 TZ_BJ = datetime.timezone(datetime.timedelta(hours=8))

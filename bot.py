@@ -28,7 +28,7 @@ async def _compensation_cleanup(chat_id: int, msg_id: int, delay: float, redis_k
     """延迟后清理停机补偿置顶：仅当 key 仍指向本消息时才解钉+删除+清 key"""
     await asyncio.sleep(delay)
     current = await redis.get(redis_key)
-    if current and int(current) == msg_id:
+    if current and int(current.split(":")[0]) == msg_id:
         try:
             await bot.unpin_chat_message(chat_id=chat_id, message_id=msg_id)
         except:
@@ -143,12 +143,13 @@ async def handle_pw_redpack_text(message):
         for old_key in [f"compensation_pin:{message.chat.id}", f"maintenance_pin:{message.chat.id}"]:
             old_id = await redis.get(old_key)
             if old_id:
+                old_msg = int(old_id.split(":")[0])
                 try:
-                    await bot.unpin_chat_message(chat_id=message.chat.id, message_id=int(old_id))
+                    await bot.unpin_chat_message(chat_id=message.chat.id, message_id=old_msg)
                 except Exception:
                     pass
                 try:
-                    await bot.delete_message(chat_id=message.chat.id, message_id=int(old_id))
+                    await bot.delete_message(chat_id=message.chat.id, message_id=old_msg)
                 except Exception:
                     pass
                 await redis.delete(old_key)
@@ -192,12 +193,13 @@ async def handle_pw_redpack_text(message):
         await redis.delete(f"maintenance:{message.chat.id}")
         old_comp_msg_id = await redis.get(f"compensation_pin:{message.chat.id}")
         if old_comp_msg_id:
+            old_comp_msg = int(old_comp_msg_id.split(":")[0])
             try:
-                await bot.unpin_chat_message(chat_id=message.chat.id, message_id=int(old_comp_msg_id))
+                await bot.unpin_chat_message(chat_id=message.chat.id, message_id=old_comp_msg)
             except:
                 pass
             try:
-                await bot.delete_message(chat_id=message.chat.id, message_id=int(old_comp_msg_id))
+                await bot.delete_message(chat_id=message.chat.id, message_id=old_comp_msg)
             except:
                 pass
         body = (
@@ -214,7 +216,7 @@ async def handle_pw_redpack_text(message):
             await bot.pin_chat_message(chat_id=message.chat.id, message_id=announce.message_id, disable_notification=False)
         except Exception:
             pass
-        await redis.set(f"compensation_pin:{message.chat.id}", str(announce.message_id))
+        await redis.set(f"compensation_pin:{message.chat.id}", f"{announce.message_id}:{int(time.time())}")
         asyncio.create_task(_compensation_cleanup(message.chat.id, announce.message_id, 1800, f"compensation_pin:{message.chat.id}"))
         return
 
@@ -311,6 +313,40 @@ async def main():
             logging.info(f"[startup] 重启红包 watcher rp_id={rp_id}")
     except Exception as e:
         logging.warning(f"[startup] 重启恢复异常: {e}")
+
+    # ── 重启恢复：补偿置顶清理协程 ──
+    try:
+        cursor = 0
+        while True:
+            cursor, keys = await redis.scan(cursor, match="compensation_pin:*", count=100)
+            for key in keys:
+                val = await redis.get(key)
+                if not val:
+                    continue
+                parts = val.split(":")
+                msg_id = int(parts[0])
+                created_at = int(parts[1]) if len(parts) > 1 else 0
+                chat_id_str = key.split(":", 1)[1]
+                remaining = 1800 - (time.time() - created_at) if created_at else 0
+                if remaining <= 0:
+                    # 已超时，立即清理
+                    try:
+                        await bot.unpin_chat_message(chat_id=int(chat_id_str), message_id=msg_id)
+                    except Exception:
+                        pass
+                    try:
+                        await bot.delete_message(chat_id=int(chat_id_str), message_id=msg_id)
+                    except Exception:
+                        pass
+                    await redis.delete(key)
+                    logging.info(f"[startup] 清理过期补偿置顶 chat={chat_id_str}")
+                else:
+                    asyncio.create_task(_compensation_cleanup(int(chat_id_str), msg_id, remaining, key))
+                    logging.info(f"[startup] 恢复补偿清理 chat={chat_id_str} 剩余{int(remaining)}s")
+            if cursor == 0:
+                break
+    except Exception as e:
+        logging.warning(f"[startup] 补偿清理恢复异常: {e}")
 
     from aiogram import types as tg_types
     base_commands = [
