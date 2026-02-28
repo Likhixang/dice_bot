@@ -21,7 +21,7 @@ if not ADMIN_IDS:
 
 # 每次停机修复后更新此处，停机补偿公告会自动带上本次修复说明
 LAST_FIX_DESC = (
-    "• /attack 结算：赢家取回本金 + 缴获对方90%投入，10%销毁，总得分小于双方总投入"
+    "• 服务器目录重组迁移，运行环境优化"
 )
 
 TZ_BJ = datetime.timezone(datetime.timedelta(hours=8))
