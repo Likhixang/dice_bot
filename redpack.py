@@ -293,7 +293,7 @@ async def attempt_claim_pw_redpack(message: types.Message, text: str, uid: str, 
             sender_name = meta.get("sender_name", "某人")
             sender_mention = get_mention(sender_uid, sender_name) if sender_uid else sender_name
 
-            announce_msg = await message.answer(f"🎉 {get_mention(uid, message.from_user.first_name)} 领取了 {sender_mention} 的口令红包，获得 <b>{amt}</b> 积分！")
+            announce_msg = await bot.send_message(message.chat.id, f"🎉 {get_mention(uid, message.from_user.first_name)} 领取了 {sender_mention} 的口令红包，获得 <b>{amt}</b> 积分！", message_thread_id=ALLOWED_THREAD_ID or None)
             asyncio.create_task(delete_msgs([announce_msg], 10))
 
             users_data = await redis.hgetall(f"redpack_users:{rp_id}")

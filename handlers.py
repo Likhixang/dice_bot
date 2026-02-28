@@ -365,7 +365,7 @@ async def cmd_redpack(message: types.Message):
     await redis.expire(f"redpack_list:{rp_id}", 300)
 
     text, markup = await build_redpack_panel(rp_id, is_pw=False)
-    bot_msg = await message.answer(text, reply_markup=markup)
+    bot_msg = await bot.send_message(message.chat.id, text, reply_markup=markup, message_thread_id=ALLOWED_THREAD_ID or None)
 
     await redis.hset(f"redpack_meta:{rp_id}", "msg_id", str(bot_msg.message_id))
 
@@ -431,7 +431,7 @@ async def cmd_redpack_pw(message: types.Message):
 
     if pw == "🎲":
         text, _ = await build_redpack_panel(rp_id, is_pw=True)
-        bot_msg = await message.answer(text)
+        bot_msg = await bot.send_message(message.chat.id, text, message_thread_id=ALLOWED_THREAD_ID or None)
         await redis.hset(f"redpack_meta:{rp_id}", "msg_id", str(bot_msg.message_id))
         try:
             await refresh_dice_panel(message.chat.id)
@@ -440,7 +440,7 @@ async def cmd_redpack_pw(message: types.Message):
         asyncio.create_task(redpack_expiry_watcher(message.chat.id, bot_msg.message_id, rp_id, True, epoch))
     else:
         text, markup = await build_redpack_panel(rp_id, is_pw=True)
-        bot_msg = await message.answer(text, reply_markup=markup)
+        bot_msg = await bot.send_message(message.chat.id, text, reply_markup=markup, message_thread_id=ALLOWED_THREAD_ID or None)
         await redis.hset(f"redpack_meta:{rp_id}", "msg_id", str(bot_msg.message_id))
         asyncio.create_task(redpack_expiry_watcher(message.chat.id, bot_msg.message_id, rp_id, True, epoch))
 
@@ -652,7 +652,9 @@ async def handle_bet_command(message: types.Message):
 
     target_uid = ""
     target_name = ""
-    if message.reply_to_message and not is_multi:
+    if message.reply_to_message and not is_multi and not (
+            message.message_thread_id and
+            message.reply_to_message.message_id == message.message_thread_id):
         target_uid = str(message.reply_to_message.from_user.id)
         target_name = message.reply_to_message.from_user.first_name
         if target_uid == uid:
@@ -962,7 +964,7 @@ async def handle_grab_rp(callback: types.CallbackQuery):
     sender_name = meta.get("sender_name", "某人")
     sender_mention = get_mention(sender_uid, sender_name) if sender_uid else safe_html(sender_name)
 
-    announce_msg = await callback.message.answer(f"🎉 {get_mention(uid, callback.from_user.first_name)} 领取了 {sender_mention} 的拼手气红包，获得 <b>{amt}</b> 积分！")
+    announce_msg = await bot.send_message(callback.message.chat.id, f"🎉 {get_mention(uid, callback.from_user.first_name)} 领取了 {sender_mention} 的拼手气红包，获得 <b>{amt}</b> 积分！", message_thread_id=ALLOWED_THREAD_ID or None)
     asyncio.create_task(delete_msgs([announce_msg], 10))
 
     if len(users_data) >= int(meta.get('count', 0)):
@@ -1223,8 +1225,10 @@ async def cmd_attack(message: types.Message):
         actual_penalty = min(penalty, int(bal))
         if actual_penalty > 0:
             await update_balance(c_uid, -actual_penalty)
-        bot_msg = await message.answer(
-            f"❌ <b>{safe_html(c_name)}</b> 恶意攻击荷官，扣除 <b>{actual_penalty}</b> 积分 🔨"
+        bot_msg = await bot.send_message(
+            message.chat.id,
+            f"❌ <b>{safe_html(c_name)}</b> 恶意攻击荷官，扣除 <b>{actual_penalty}</b> 积分 🔨",
+            message_thread_id=ALLOWED_THREAD_ID or None
         )
         asyncio.create_task(delete_msgs([message, bot_msg], 15))
         return
@@ -1258,7 +1262,7 @@ async def cmd_attack(message: types.Message):
 
     asyncio.create_task(delete_msgs([message], 0))
     text = _attack_active_text(c_uid, c_name, d_uid, d_name, ATTACK_BET, 0)
-    panel = await message.answer(text, reply_markup=_attack_markup(attack_id))
+    panel = await bot.send_message(message.chat.id, text, reply_markup=_attack_markup(attack_id), message_thread_id=ALLOWED_THREAD_ID or None)
     await redis.hset(f"attack:{attack_id}", "msg_id", str(panel.message_id))
     asyncio.create_task(_attack_watcher(chat_id, attack_id, panel.message_id))
 

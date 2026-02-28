@@ -13,13 +13,15 @@ from tasks import daily_backup_task, daily_report_task, noon_event_task, weekly_
 from redpack import redpack_expiry_watcher, attempt_claim_pw_redpack, refresh_dice_panel
 from game_settle import process_dice_value
 from game import refund_game
-from handlers import router as handlers_router
+from handlers import router as handlers_router, TopicRestrictionMiddleware
 
 # ==============================
 # ⏬ 绝对兜底的全局黑洞 ⏬
 # 务必放在代码最最底部，绝不拦截上方的核心指令
 # ==============================
 blackhole_router = Router()
+blackhole_router.message.middleware(TopicRestrictionMiddleware())
+blackhole_router.callback_query.middleware(TopicRestrictionMiddleware())
 
 
 async def _compensation_cleanup(chat_id: int, msg_id: int, delay: float, redis_key: str):
