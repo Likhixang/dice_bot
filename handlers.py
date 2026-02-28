@@ -49,7 +49,7 @@ class TopicRestrictionMiddleware(BaseMiddleware):
                 return await handler(event, data)
             if chat.id != ALLOWED_CHAT_ID or event.message_thread_id != ALLOWED_THREAD_ID:
                 if not self.silent:
-                    await reply_and_auto_delete(event, "❌ 本 bot 仅在指定话题频道内提供服务。")
+                    await reply_and_auto_delete(event, "❌ 本 bot 仅在 🎲 赌博话题提供服务。")
                 return
         elif isinstance(event, types.CallbackQuery):
             msg = event.message
@@ -57,7 +57,7 @@ class TopicRestrictionMiddleware(BaseMiddleware):
                 if msg.chat.id != ALLOWED_CHAT_ID or msg.message_thread_id != ALLOWED_THREAD_ID:
                     if not self.silent:
                         try:
-                            await event.answer("❌ 本 bot 仅在指定话题频道内提供服务。", show_alert=True)
+                            await event.answer("❌ 本 bot 仅在 🎲 赌博话题提供服务。", show_alert=True)
                         except Exception:
                             pass
                     return
