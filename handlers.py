@@ -1093,7 +1093,7 @@ async def handle_roll_button(callback: types.CallbackQuery):
             break
 
         try:
-            dice_msg = await bot.send_dice(chat_id=callback.message.chat.id, emoji="🎲")
+            dice_msg = await bot.send_dice(chat_id=callback.message.chat.id, emoji="🎲", message_thread_id=ALLOWED_THREAD_ID or None)
             await asyncio.sleep(2.5)
         except Exception:
             cancel_amount = roll_count - i
