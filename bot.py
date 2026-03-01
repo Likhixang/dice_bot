@@ -7,7 +7,7 @@ from aiogram import F, Router
 
 from config import LAST_FIX_DESC, SUPER_ADMIN_ID, ALLOWED_CHAT_ID, ALLOWED_THREAD_ID
 from core import bot, dp, redis, CleanTextFilter
-from utils import delete_msgs, delete_msg_by_id
+from utils import delete_msgs, delete_msg_by_id, pin_in_topic
 from balance import update_balance
 from tasks import daily_backup_task, daily_report_task, noon_event_task, weekly_help_task
 from redpack import redpack_expiry_watcher, attempt_claim_pw_redpack, refresh_dice_panel
@@ -161,7 +161,7 @@ async def handle_pw_redpack_text(message):
                 f"维护完成后将置顶「停机补偿」公告并发放补偿积分，感谢耐心等待！")
         announce = await bot.send_message(message.chat.id, body, message_thread_id=ALLOWED_THREAD_ID or None)
         try:
-            await bot.pin_chat_message(chat_id=message.chat.id, message_id=announce.message_id, disable_notification=False)
+            await pin_in_topic(message.chat.id, announce.message_id, disable_notification=False)
         except Exception as e:
             logging.warning(f"[maintenance] 置顶失败: {e}")
         await redis.set(f"maintenance_pin:{message.chat.id}", str(announce.message_id))
@@ -213,7 +213,7 @@ async def handle_pw_redpack_text(message):
         body += "\n感谢耐心等待，继续欢乐！"
         announce = await bot.send_message(message.chat.id, body, message_thread_id=ALLOWED_THREAD_ID or None)
         try:
-            await bot.pin_chat_message(chat_id=message.chat.id, message_id=announce.message_id, disable_notification=False)
+            await pin_in_topic(message.chat.id, announce.message_id, disable_notification=False)
         except Exception:
             pass
         await redis.set(f"compensation_pin:{message.chat.id}", f"{announce.message_id}:{int(time.time())}")

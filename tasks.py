@@ -8,7 +8,7 @@ import time
 
 from config import TZ_BJ, SUPER_ADMIN_ID, ALLOWED_THREAD_ID
 from core import bot, redis
-from utils import get_mention, safe_zrevrange, unpin_and_delete_after
+from utils import get_mention, safe_zrevrange, unpin_and_delete_after, pin_in_topic
 from balance import update_balance
 
 HELP_TEXT = """🎲 <b>骰子竞技场 · 指令与玩法指南</b> 🎲
@@ -345,7 +345,7 @@ async def noon_event_task():
             try:
                 msg = await bot.send_message(chat_id=int(gid), text=announce_text, message_thread_id=ALLOWED_THREAD_ID or None)
                 try:
-                    await bot.pin_chat_message(chat_id=int(gid), message_id=msg.message_id, disable_notification=False)
+                    await pin_in_topic(int(gid), msg.message_id, disable_notification=False)
                 except Exception:
                     pass
                 asyncio.create_task(unpin_and_delete_after(int(gid), msg.message_id, pin_secs))
@@ -383,7 +383,7 @@ async def weekly_help_task():
 
                 msg = await bot.send_message(chat_id=gid_int, text=HELP_TEXT, message_thread_id=ALLOWED_THREAD_ID or None)
                 try:
-                    await bot.pin_chat_message(chat_id=gid_int, message_id=msg.message_id, disable_notification=True)
+                    await pin_in_topic(gid_int, msg.message_id, disable_notification=True)
                 except Exception:
                     pass
                 await redis.set(f"help_pin:{gid}", str(msg.message_id))

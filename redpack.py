@@ -7,7 +7,7 @@ from aiogram import types
 
 from core import bot, redis
 from config import ALLOWED_THREAD_ID
-from utils import get_mention, safe_html, delete_msg_by_id, delete_msgs
+from utils import get_mention, safe_html, delete_msg_by_id, delete_msgs, pin_in_topic
 from balance import update_balance
 
 
@@ -164,7 +164,7 @@ async def refresh_dice_panel(chat_id: int, is_resume: bool = False):
                     msg = await bot.send_message(chat_id, panel_text, message_thread_id=ALLOWED_THREAD_ID or None)
                     await redis.set(f"dice_panel_msg:{chat_id}", str(msg.message_id))
                     try:
-                        await bot.pin_chat_message(chat_id=chat_id, message_id=msg.message_id, disable_notification=True)
+                        await pin_in_topic(chat_id, msg.message_id, disable_notification=True)
                     except:
                         pass
                 except Exception as e2:
@@ -174,7 +174,7 @@ async def refresh_dice_panel(chat_id: int, is_resume: bool = False):
             msg = await bot.send_message(chat_id, panel_text, message_thread_id=ALLOWED_THREAD_ID or None)
             await redis.set(f"dice_panel_msg:{chat_id}", str(msg.message_id))
             try:
-                await bot.pin_chat_message(chat_id=chat_id, message_id=msg.message_id, disable_notification=True)
+                await pin_in_topic(chat_id, msg.message_id, disable_notification=True)
             except:
                 pass
         except Exception as e:

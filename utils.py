@@ -1,9 +1,12 @@
 import asyncio
 import html
+import logging
 
 from aiogram import types
+from aiogram.methods import PinChatMessage
 
 from core import bot, redis
+from config import ALLOWED_THREAD_ID
 
 
 def safe_html(text: str) -> str:
@@ -75,3 +78,11 @@ async def unpin_and_delete_after(chat_id: int, msg_id: int, delay: float, redis_
 async def reply_and_auto_delete(message: types.Message, text: str, delay: int = 10):
     bot_msg = await message.reply(text)
     asyncio.create_task(delete_msgs([message, bot_msg], delay))
+
+
+async def pin_in_topic(chat_id: int, message_id: int, disable_notification: bool = False):
+    """pin_chat_message 的话题感知包装：ALLOWED_THREAD_ID 存在时带上 message_thread_id"""
+    kwargs = {"chat_id": chat_id, "message_id": message_id, "disable_notification": disable_notification}
+    if ALLOWED_THREAD_ID:
+        kwargs["message_thread_id"] = ALLOWED_THREAD_ID
+    await bot(PinChatMessage(**kwargs))
