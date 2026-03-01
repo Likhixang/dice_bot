@@ -25,7 +25,7 @@ ALLOWED_THREAD_ID = int(os.getenv("ALLOWED_THREAD_ID", "0"))
 
 # 每次停机修复后更新此处，停机补偿公告会自动带上本次修复说明
 LAST_FIX_DESC = (
-    "• 修复快捷按钮代投骰子跑到默认话题的问题（缺少 message_thread_id）"
+    "• 加固：game hash 存入 chat_id，回调不再依赖 callback.message.chat.id"
 )
 
 TZ_BJ = datetime.timezone(datetime.timedelta(hours=8))

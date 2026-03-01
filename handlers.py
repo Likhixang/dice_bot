@@ -832,7 +832,8 @@ async def handle_force_start(callback: types.CallbackQuery):
     except:
         pass
     game_data = await redis.hgetall(game_key)
-    await start_rolling_phase(callback.message.chat.id, game_id, game_data)
+    chat_id = int(game_data.get("chat_id") or callback.message.chat.id)
+    await start_rolling_phase(chat_id, game_id, game_data)
 
 
 @router.callback_query(F.data.startswith("d_new:"))
@@ -907,7 +908,9 @@ async def handle_join(callback: types.CallbackQuery):
             await callback.message.delete()
         except:
             pass
-        await start_rolling_phase(callback.message.chat.id, game_id, await redis.hgetall(game_key))
+        fresh_game_data = await redis.hgetall(game_key)
+        chat_id = int(fresh_game_data.get("chat_id") or callback.message.chat.id)
+        await start_rolling_phase(chat_id, game_id, fresh_game_data)
     else:
         player_list_str = "、".join([get_mention(p, names[p]) for p in players])
         keys = [[types.InlineKeyboardButton(text="接单", callback_data=f"jg:{game_id}")]]
@@ -1014,6 +1017,8 @@ async def handle_roll_button(callback: types.CallbackQuery):
     if not game_data:
         return await callback.answer("⚠️ 对局已开启、结束或不存在。", show_alert=True)
 
+    chat_id = int(game_data.get("chat_id") or callback.message.chat.id)
+
     status = game_data.get("status")
     target_lengths = json.loads(game_data.get("target_lengths", "{}"))
     rolls = json.loads(game_data.get("rolls", "{}"))
@@ -1093,7 +1098,7 @@ async def handle_roll_button(callback: types.CallbackQuery):
             break
 
         try:
-            dice_msg = await bot.send_dice(chat_id=callback.message.chat.id, emoji="🎲", message_thread_id=ALLOWED_THREAD_ID or None)
+            dice_msg = await bot.send_dice(chat_id=chat_id, emoji="🎲", message_thread_id=ALLOWED_THREAD_ID or None)
             await asyncio.sleep(2.5)
         except Exception:
             cancel_amount = roll_count - i
@@ -1103,7 +1108,7 @@ async def handle_roll_button(callback: types.CallbackQuery):
 
         if await redis.exists(game_key):
             await redis.hincrby(game_key, f"pending_{uid}", -1)
-            await process_dice_value(callback.message.chat.id, game_id, uid, dice_msg.dice.value, dice_msg.message_id)
+            await process_dice_value(chat_id, game_id, uid, dice_msg.dice.value, dice_msg.message_id)
 
 
 

@@ -270,6 +270,7 @@ async def start_game_creation(chat_id: int, uid: str, name: str, pending_data: d
     await suspend_dice_redpacks(chat_id)
     await redis.hset(game_key, mapping={
         "status": "waiting_join",
+        "chat_id": str(chat_id),
         "players": json.dumps(players),
         "names": json.dumps(names),
         "amount": str(amount),
