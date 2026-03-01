@@ -160,11 +160,10 @@ async def handle_pw_redpack_text(message):
                 f"• 已退回 <b>{rp_refunded}</b> 个未过期红包\n\n"
                 f"维护完成后将置顶「停机补偿」公告并发放补偿积分，感谢耐心等待！")
         announce = await bot.send_message(message.chat.id, body, message_thread_id=ALLOWED_THREAD_ID or None)
-        if not ALLOWED_THREAD_ID:
-            try:
-                await bot.pin_chat_message(chat_id=message.chat.id, message_id=announce.message_id, disable_notification=False)
-            except Exception as e:
-                logging.warning(f"[maintenance] 置顶失败: {e}")
+        try:
+            await bot.pin_chat_message(chat_id=message.chat.id, message_id=announce.message_id, disable_notification=False)
+        except Exception as e:
+            logging.warning(f"[maintenance] 置顶失败: {e}")
         await redis.set(f"maintenance_pin:{message.chat.id}", str(announce.message_id))
         await redis.set(f"maintenance:{message.chat.id}", "1")
         return
@@ -213,11 +212,10 @@ async def handle_pw_redpack_text(message):
             body += f"\n📋 <b>本次更新内容：</b>\n{desc}\n"
         body += "\n感谢耐心等待，继续欢乐！"
         announce = await bot.send_message(message.chat.id, body, message_thread_id=ALLOWED_THREAD_ID or None)
-        if not ALLOWED_THREAD_ID:
-            try:
-                await bot.pin_chat_message(chat_id=message.chat.id, message_id=announce.message_id, disable_notification=False)
-            except Exception:
-                pass
+        try:
+            await bot.pin_chat_message(chat_id=message.chat.id, message_id=announce.message_id, disable_notification=False)
+        except Exception:
+            pass
         await redis.set(f"compensation_pin:{message.chat.id}", f"{announce.message_id}:{int(time.time())}")
         asyncio.create_task(_compensation_cleanup(message.chat.id, announce.message_id, 1800, f"compensation_pin:{message.chat.id}"))
         return

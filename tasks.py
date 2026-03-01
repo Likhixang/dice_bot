@@ -344,12 +344,11 @@ async def noon_event_task():
         for gid in list(active_groups):
             try:
                 msg = await bot.send_message(chat_id=int(gid), text=announce_text, message_thread_id=ALLOWED_THREAD_ID or None)
-                if not ALLOWED_THREAD_ID:
-                    try:
-                        await bot.pin_chat_message(chat_id=int(gid), message_id=msg.message_id, disable_notification=False)
-                    except Exception:
-                        pass
-                    asyncio.create_task(unpin_and_delete_after(int(gid), msg.message_id, pin_secs))
+                try:
+                    await bot.pin_chat_message(chat_id=int(gid), message_id=msg.message_id, disable_notification=False)
+                except Exception:
+                    pass
+                asyncio.create_task(unpin_and_delete_after(int(gid), msg.message_id, pin_secs))
             except Exception as e:
                 await redis.srem("active_groups", gid)
                 logging.warning(f"无法向群组 {gid} 发送彩蛋公告，已移除记录: {e}")
@@ -383,11 +382,10 @@ async def weekly_help_task():
                     await redis.delete(f"help_pin:{gid}")
 
                 msg = await bot.send_message(chat_id=gid_int, text=HELP_TEXT, message_thread_id=ALLOWED_THREAD_ID or None)
-                if not ALLOWED_THREAD_ID:
-                    try:
-                        await bot.pin_chat_message(chat_id=gid_int, message_id=msg.message_id, disable_notification=True)
-                    except Exception:
-                        pass
+                try:
+                    await bot.pin_chat_message(chat_id=gid_int, message_id=msg.message_id, disable_notification=True)
+                except Exception:
+                    pass
                 await redis.set(f"help_pin:{gid}", str(msg.message_id))
             except Exception as e:
                 await redis.srem("active_groups", gid)
