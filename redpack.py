@@ -163,20 +163,22 @@ async def refresh_dice_panel(chat_id: int, is_resume: bool = False):
                 try:
                     msg = await bot.send_message(chat_id, panel_text, message_thread_id=ALLOWED_THREAD_ID or None)
                     await redis.set(f"dice_panel_msg:{chat_id}", str(msg.message_id))
-                    try:
-                        await bot.pin_chat_message(chat_id=chat_id, message_id=msg.message_id, disable_notification=True)
-                    except:
-                        pass
+                    if not ALLOWED_THREAD_ID:
+                        try:
+                            await bot.pin_chat_message(chat_id=chat_id, message_id=msg.message_id, disable_notification=True)
+                        except:
+                            pass
                 except Exception as e2:
                     logging.warning(f"[dice_panel] 发送面板失败(fallback): {e2}")
     else:
         try:
             msg = await bot.send_message(chat_id, panel_text, message_thread_id=ALLOWED_THREAD_ID or None)
             await redis.set(f"dice_panel_msg:{chat_id}", str(msg.message_id))
-            try:
-                await bot.pin_chat_message(chat_id=chat_id, message_id=msg.message_id, disable_notification=True)
-            except:
-                pass
+            if not ALLOWED_THREAD_ID:
+                try:
+                    await bot.pin_chat_message(chat_id=chat_id, message_id=msg.message_id, disable_notification=True)
+                except:
+                    pass
         except Exception as e:
             logging.warning(f"[dice_panel] 发送面板失败: {e}")
 

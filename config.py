@@ -25,7 +25,7 @@ ALLOWED_THREAD_ID = int(os.getenv("ALLOWED_THREAD_ID", "0"))
 
 # 每次停机修复后更新此处，停机补偿公告会自动带上本次修复说明
 LAST_FIX_DESC = (
-    "• 加固：game hash 存入 chat_id，回调不再依赖 callback.message.chat.id"
+    "• 修复：话题模式下不再全群置顶，避免 pin 通知刷屏到其他话题"
 )
 
 TZ_BJ = datetime.timezone(datetime.timedelta(hours=8))
