@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import time
 from collections import Counter
 
@@ -163,6 +164,7 @@ async def process_round_end_or_settle(chat_id: int, game_id: str, game_data: dic
             tie_txt += "\n⚠️ <b>[已达20颗极限强制平分清算]</b>"
 
         final_text = [f"🎲 <b>终局结算单 (比{direction} · 押注{amount:g}/人)</b>{tie_txt}"]
+        extreme_compensations = []  # (uid, name, score) — 比大0点/比小9点补偿
 
         if session_key:
             await redis.hset(session_key, "last_active", str(time.time()))
@@ -203,6 +205,8 @@ async def process_round_end_or_settle(chat_id: int, game_id: str, game_data: dic
                 extra_rounds = len(p_rolls) - initial_count
                 p_tie_tag = f" <i>(共投{len(p_rolls)}颗)</i>" if extra_rounds > 0 else ""
                 final_text.append(f"第{i+1}名: {get_mention(p, names[p])}{p_tie_tag} | {p_rolls}={detail} ➡ <b>{score}点</b> | 盈亏: <b>{sign}{win_lose_profit:.2f}</b>")
+                if (direction == "大" and score == 0) or (direction == "小" and score == 9):
+                    extreme_compensations.append((p, names[p], score))
 
         await bot.send_message(chat_id, "\n".join(final_text), message_thread_id=ALLOWED_THREAD_ID or None)
 
@@ -245,6 +249,19 @@ async def process_round_end_or_settle(chat_id: int, game_id: str, game_data: dic
                     lines.append(f"🤝 <b>【{title}】</b> {get_mention(p, name)} 连败 {abs_streak} 局，系统补贴 <b>{sign}{bonus}</b> 积分！")
             notif_msg = await bot.send_message(chat_id, "\n".join(lines), message_thread_id=ALLOWED_THREAD_ID or None)
             asyncio.create_task(delete_msgs([notif_msg], 30))
+
+        # ── 比大0点/比小9点极端补偿 ──
+        if extreme_compensations:
+            comp_lines = []
+            for p, name, sc in extreme_compensations:
+                await update_balance(p, 200)
+                if sc == 0:
+                    comp_lines.append(f"🫡 {get_mention(p, name)} 比大出 <b>0点</b>，太惨了！系统补偿 <b>+200</b> 积分")
+                else:
+                    comp_lines.append(f"🫡 {get_mention(p, name)} 比小出 <b>9点</b>，太倒霉了！系统补偿 <b>+200</b> 积分")
+            comp_msg = await bot.send_message(chat_id, "\n".join(comp_lines), message_thread_id=ALLOWED_THREAD_ID or None)
+            asyncio.create_task(delete_msgs([comp_msg], 30))
+
         tie_panel_id = game_data.get("tie_panel_msg_id")
         if tie_panel_id:
             asyncio.create_task(delete_msg_by_id(chat_id, int(tie_panel_id)))
@@ -319,12 +336,16 @@ async def process_dice_value(chat_id: int, game_id: str, uid: str, dice_value: i
         target = target_lengths.get(uid, 0)
         current_rolls_len = len(rolls.get(uid, []))
 
-        # 核心防线：如果不是你的回合，或者是你投多了的骰子，不仅不计入，而且立刻销毁该消息！
-        if dice_value != -1:
-            if not is_my_turn or current_rolls_len >= target:
-                if msg_id:
-                    asyncio.create_task(delete_msg_by_id(chat_id, msg_id))
-                return
+        # 核心防线：已投完的玩家，任何骰子（包括逃跑-1）都不再计入
+        if current_rolls_len >= target:
+            if msg_id and dice_value != -1:
+                asyncio.create_task(delete_msg_by_id(chat_id, msg_id))
+            return
+        # 非逃跑骰子额外检查回合
+        if dice_value != -1 and not is_my_turn:
+            if msg_id:
+                asyncio.create_task(delete_msg_by_id(chat_id, msg_id))
+            return
         # --------------------------------------
 
         rolls.setdefault(uid, []).append(dice_value)
@@ -355,7 +376,8 @@ async def process_dice_value(chat_id: int, game_id: str, uid: str, dice_value: i
                     await redis.hset(game_key, "queue", json.dumps(queue))
 
                     finished_text = []
-                    for p in json.loads(fresh_data["players"]):
+                    all_players = json.loads(fresh_data["players"])
+                    for p in all_players:
                         if p not in queue and len(rolls.get(p, [])) >= target_lengths[p]:
                             if -1 in rolls.get(p, []):
                                 finished_text.append(f"{safe_html(names[p])}:逃跑")
@@ -364,8 +386,19 @@ async def process_dice_value(chat_id: int, game_id: str, uid: str, dice_value: i
                                 finished_text.append(f"{safe_html(names[p])}:{sc}点")
 
                     status_str = " | ".join(finished_text)
-                    msg = await bot.send_message(chat_id, f"✅ 赛况（比{_dir}｜{_amt:g}/人）：{status_str}\n\n👉 轮到 {get_mention(next_uid, names[next_uid])} 投掷 <b>{rem}</b> 颗！", reply_markup=get_roll_keyboard(game_id, next_uid), message_thread_id=ALLOWED_THREAD_ID or None)
-                    await redis.rpush(f"game_msgs:{game_id}", msg.message_id)
+                    waiting_names = [safe_html(names[p]) for p in queue[1:]]
+                    waiting_str = f"\n⏳ 等候：{'、'.join(waiting_names)}" if waiting_names else ""
+                    prompt_text = f"✅ 赛况（比{_dir}｜{_amt:g}/人｜{len(all_players)}人局）：{status_str}{waiting_str}\n\n👉 轮到 {get_mention(next_uid, names[next_uid])} 投掷 <b>{rem}</b> 颗！"
+                    for _retry in range(3):
+                        try:
+                            msg = await bot.send_message(chat_id, prompt_text, reply_markup=get_roll_keyboard(game_id, next_uid), message_thread_id=ALLOWED_THREAD_ID or None)
+                            await redis.rpush(f"game_msgs:{game_id}", msg.message_id)
+                            break
+                        except Exception:
+                            if _retry < 2:
+                                await asyncio.sleep(1)
+                            else:
+                                logging.warning(f"[game] 发送下一位投掷提示失败 game={game_id} next={next_uid}")
                 else:
                     await process_round_end_or_settle(chat_id, game_id, await redis.hgetall(game_key))
 
@@ -392,15 +425,33 @@ async def process_dice_value(chat_id: int, game_id: str, uid: str, dice_value: i
                 if next_turn < len(tie_queue[g_idx]):
                     await redis.hset(game_key, "current_turn", str(next_turn))
                     next_uid = tie_queue[g_idx][next_turn]
-                    msg = await bot.send_message(chat_id, f"✅ {safe_html(names[uid])} 加赛{sc_text}！（比{_dir}｜{_amt:g}/人）\n👉 同组并列：{get_mention(next_uid, names[next_uid])} 补投！", reply_markup=get_roll_keyboard(game_id, next_uid), message_thread_id=ALLOWED_THREAD_ID or None)
-                    await redis.rpush(f"game_msgs:{game_id}", msg.message_id)
+                    tie_prompt = f"✅ {safe_html(names[uid])} 加赛{sc_text}！（比{_dir}｜{_amt:g}/人）\n👉 同组并列：{get_mention(next_uid, names[next_uid])} 补投！"
+                    for _retry in range(3):
+                        try:
+                            msg = await bot.send_message(chat_id, tie_prompt, reply_markup=get_roll_keyboard(game_id, next_uid), message_thread_id=ALLOWED_THREAD_ID or None)
+                            await redis.rpush(f"game_msgs:{game_id}", msg.message_id)
+                            break
+                        except Exception:
+                            if _retry < 2:
+                                await asyncio.sleep(1)
+                            else:
+                                logging.warning(f"[game] 加赛提示发送失败 game={game_id}")
                 else:
                     next_group = g_idx + 1
                     if next_group < len(tie_queue):
                         await redis.hset(game_key, "current_tie_group", str(next_group))
                         await redis.hset(game_key, "current_turn", "0")
                         first_next_uid = tie_queue[next_group][0]
-                        msg = await bot.send_message(chat_id, f"✅ {safe_html(names[uid])} 加赛{sc_text}！（比{_dir}｜{_amt:g}/人）\n👉 下一组并列：{get_mention(first_next_uid, names[first_next_uid])} 补投！", reply_markup=get_roll_keyboard(game_id, first_next_uid), message_thread_id=ALLOWED_THREAD_ID or None)
-                        await redis.rpush(f"game_msgs:{game_id}", msg.message_id)
+                        tie_prompt2 = f"✅ {safe_html(names[uid])} 加赛{sc_text}！（比{_dir}｜{_amt:g}/人）\n👉 下一组并列：{get_mention(first_next_uid, names[first_next_uid])} 补投！"
+                        for _retry in range(3):
+                            try:
+                                msg = await bot.send_message(chat_id, tie_prompt2, reply_markup=get_roll_keyboard(game_id, first_next_uid), message_thread_id=ALLOWED_THREAD_ID or None)
+                                await redis.rpush(f"game_msgs:{game_id}", msg.message_id)
+                                break
+                            except Exception:
+                                if _retry < 2:
+                                    await asyncio.sleep(1)
+                                else:
+                                    logging.warning(f"[game] 加赛提示发送失败 game={game_id}")
                     else:
                         await process_round_end_or_settle(chat_id, game_id, await redis.hgetall(game_key))

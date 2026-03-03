@@ -25,7 +25,10 @@ ALLOWED_THREAD_ID = int(os.getenv("ALLOWED_THREAD_ID", "0"))
 
 # 每次停机修复后更新此处，停机补偿公告会自动带上本次修复说明
 LAST_FIX_DESC = (
-    "• 修复：置顶消息现在正确 pin 到话题内，不再跑到「全部」"
+    "• 新增：比大0点/比小9点系统补偿200积分\n"
+    "• 新增：/bal 显示本月胜率\n"
+    "• 优化：对局消息全面补全玩法/人数/战况信息\n"
+    "• 修复：并发操作导致投掷提示丢失的卡局问题"
 )
 
 TZ_BJ = datetime.timezone(datetime.timedelta(hours=8))

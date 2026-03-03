@@ -50,6 +50,10 @@ async def check_and_destroy_timeout(chat_id: int, game_id: str):
     players = json.loads(game_data.get("players", "[]"))
     names = json.loads(game_data.get("names", "{}"))
     game_mode = game_data.get("game_mode")
+    _dir = game_data.get("direction", "?")
+    _amt = float(game_data.get("amount", 0))
+    _dc = game_data.get("dice_count", "1")
+    info_line = f"<i>比{_dir} · {_amt:g}/人 · {_dc}颗骰子</i>"
 
     cmd_msg_id = game_data.get("cmd_msg_id")
     if cmd_msg_id:
@@ -59,13 +63,13 @@ async def check_and_destroy_timeout(chat_id: int, game_id: str):
 
     if game_mode == "targeted":
         initiator = players[0]
-        msg = await bot.send_message(chat_id, f"⏰ 对方 未在1分钟内应答，{get_mention(initiator, names[initiator])} 的指定对战已自动销毁，押金退回。", message_thread_id=ALLOWED_THREAD_ID or None)
+        msg = await bot.send_message(chat_id, f"⏰ 对方未在1分钟内应答，{get_mention(initiator, names[initiator])} 的指定对战已自动销毁。\n{info_line}\n押金退回。", message_thread_id=ALLOWED_THREAD_ID or None)
     elif game_mode == "multi_exact":
         initiator = players[0]
-        msg = await bot.send_message(chat_id, f"⏰ {get_mention(initiator, names[initiator])} 的发车未在规定时间内达到指定人数，对局作废，押金退回。", message_thread_id=ALLOWED_THREAD_ID or None)
+        msg = await bot.send_message(chat_id, f"⏰ {get_mention(initiator, names[initiator])} 的发车未在规定时间内达到指定人数。\n{info_line}\n对局作废，押金退回。", message_thread_id=ALLOWED_THREAD_ID or None)
     else:
         mentions = " ".join([get_mention(uid, names.get(uid, "未知")) for uid in players])
-        msg = await bot.send_message(chat_id, f"💥 <b>发车超时/人员流失强制解散</b>\n{mentions}\n押金已全额退回！", message_thread_id=ALLOWED_THREAD_ID or None)
+        msg = await bot.send_message(chat_id, f"💥 <b>发车超时/人员流失强制解散</b>\n{info_line}\n{mentions}\n押金已全额退回！", message_thread_id=ALLOWED_THREAD_ID or None)
     asyncio.create_task(delete_msgs([msg], 10))
 
 
@@ -114,9 +118,9 @@ async def start_rolling_phase(chat_id: int, game_id: str, game_data: dict):
             player_list_str = "、".join([get_mention(p, names[p]) for p in players])
             direction = game_data['direction']
             if game_data.get("game_mode") in ["multi_exact", "multi_dynamic"]:
-                txt = f"🎲 <b>组局已发车！</b> 比{direction} · {amount:g}/人\n名单：{player_list_str}"
+                txt = f"🎲 <b>组局已发车！</b> 比{direction} · {amount:g}/人 · {dice_count}颗骰子\n👥 {player_list_str}"
             else:
-                txt = f"🎯 <b>决斗已发车！</b> 比{direction} · {amount:g}/人\n名单：{player_list_str}"
+                txt = f"🎯 <b>决斗已发车！</b> 比{direction} · {amount:g}/人 · {dice_count}颗骰子\n👥 {player_list_str}"
             await bot.edit_message_text(txt, chat_id, int(init_msg_id), reply_markup=None)
         except:
             pass
@@ -184,6 +188,8 @@ async def rolling_timeout_watcher(chat_id: int, game_id: str):
 
             if rem > 0:
                 names = json.loads(game_data["names"])
+                _dir = game_data.get("direction", "?")
+                _amt = float(game_data.get("amount", 0))
 
                 if elapsed > 60:
                     escaped_str = await redis.hget(game_key, "escaped_players")
@@ -192,7 +198,7 @@ async def rolling_timeout_watcher(chat_id: int, game_id: str):
                         escaped_list.append(uid)
                         await redis.hset(game_key, "escaped_players", json.dumps(escaped_list))
 
-                    msg = await bot.send_message(chat_id, f"⏰ {get_mention(uid, names[uid])} 投掷严重超时，已标记为逃跑并垫底！", message_thread_id=ALLOWED_THREAD_ID or None)
+                    msg = await bot.send_message(chat_id, f"⏰ {get_mention(uid, names[uid])} 投掷严重超时（比{_dir}｜{_amt:g}/人），已标记为逃跑并垫底！", message_thread_id=ALLOWED_THREAD_ID or None)
                     asyncio.create_task(delete_msgs([msg], 10))
 
                     for _ in range(rem):
@@ -206,8 +212,6 @@ async def rolling_timeout_watcher(chat_id: int, game_id: str):
                     warned = game_data.get(f"warned_{uid}", "0")
                     if warned == "0":
                         await redis.hset(game_key, f"warned_{uid}", "1")
-                        _dir = game_data.get("direction", "?")
-                        _amt = float(game_data.get("amount", 0))
                         msg = await bot.send_message(
                             chat_id,
                             f"⚠️ <b>催投警告 · 比{_dir} · {_amt:g}/人</b>\n{get_mention(uid, names[uid])} 还有 <b>30 秒</b>！请尽快投出剩余 <b>{rem}</b> 颗骰子，超时将被判负扣分！",

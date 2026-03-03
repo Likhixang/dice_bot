@@ -475,8 +475,18 @@ async def cmd_rank_monthly(message: types.Message):
 
 @router.message(CleanTextFilter(), Command("bal"))
 async def check_balance(message: types.Message):
-    bal = await get_or_init_balance(str(message.from_user.id))
-    bot_msg = await message.reply(f"💰 当前可用积分为：<b>{bal}</b>")
+    uid = str(message.from_user.id)
+    bal = await get_or_init_balance(uid)
+    _, _, monthly_k = get_period_keys()
+    wins = float(await redis.zscore(f"rank_wins:monthly:{monthly_k}", uid) or 0)
+    losses = float(await redis.zscore(f"rank_losses:monthly:{monthly_k}", uid) or 0)
+    total_games = int(wins + losses)
+    if total_games > 0:
+        win_rate = wins / total_games * 100
+        rate_line = f"\n📊 本月胜率：<b>{win_rate:.1f}%</b>（{int(wins)}胜 {int(losses)}负 / 共{total_games}局）"
+    else:
+        rate_line = "\n📊 本月胜率：暂无对局记录"
+    bot_msg = await message.reply(f"💰 当前可用积分为：<b>{bal}</b>{rate_line}")
     asyncio.create_task(delete_msgs([message, bot_msg], 10))
 
 
