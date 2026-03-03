@@ -36,9 +36,9 @@ HELP_TEXT = """🎲 <b>骰子竞技场 · 指令与玩法指南</b> 🎲
 • <b>同舟共济</b>：连败 3 局（有积分扣）→ 自动补贴 +200 积分，重置后循环计算
 （平局 ±0 重置计数；与名次无关，以实际盈亏符号判定）
 
-🏷 <b>三、/attack 单挑对决</b>
+🏷 <b>三、/dice_attack 单挑对决</b>
 
-回复某人的消息发 <code>/attack</code> 向其发起攻击！
+回复某人的消息发 <code>/dice_attack</code> 向其发起攻击！
 
 • 发起时先扣 <b>1000 积分</b>，双方可在1分钟内反复追加（每次 +1000）
 • 💥 <b>加大力度</b>：仅发起方可按   🛡 <b>回手反击</b>：仅迎战方可按
@@ -48,16 +48,16 @@ HELP_TEXT = """🎲 <b>骰子竞技场 · 指令与玩法指南</b> 🎲
 
 🏷 <b>四、指令大全</b>
 
-• <code>/checkin</code>：每日签到领积分。<b>连续签到5天白送两万！</b>
-• <code>/bal</code>：查看自己的可用积分余额。
-• <code>/gift 100</code>：回复某人的消息发送，直接赠送他100积分。
-• <code>/redpack 1000 5</code>：发拼手气红包（总额1000，分5个包）。
-• <code>/redpack_pw 100 2 芝麻开门</code>：发口令红包，打出"芝麻开门"才能抢。
-• <code>/attack</code>：回复某人消息发起 Attack 对决。
-• <code>/rank</code>：查看今日胜负榜（支持按钮切换净赚榜）。
-• <code>/rank_week</code>：查看本周胜负榜。
-• <code>/rank_month</code>：查看本月胜负榜。
-• <code>/event</code>：查看过去24小时系统事件（彩蛋/补偿记录）。"""
+• <code>/dice_checkin</code>：每日签到领积分。<b>连续签到5天白送两万！</b>
+• <code>/dice_bal</code>：查看自己的可用积分余额。
+• <code>/dice_gift 100</code>：回复某人的消息发送，直接赠送他100积分。
+• <code>/dice_redpack 1000 5</code>：发拼手气红包（总额1000，分5个包）。
+• <code>/dice_redpack_pw 100 2 芝麻开门</code>：发口令红包，打出"芝麻开门"才能抢。
+• <code>/dice_attack</code>：回复某人消息发起 Attack 对决。
+• <code>/dice_rank</code>：查看今日胜负榜（支持按钮切换净赚榜）。
+• <code>/dice_rank_week</code>：查看本周胜负榜。
+• <code>/dice_rank_month</code>：查看本月胜负榜。
+• <code>/dice_event</code>：查看过去24小时系统事件（彩蛋/补偿记录）。"""
 
 try:
     from lunardate import LunarDate

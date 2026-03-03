@@ -350,23 +350,23 @@ async def main():
 
     from aiogram import types as tg_types
     base_commands = [
-        tg_types.BotCommand(command="help", description="查看全量规则与指令指南"),
-        tg_types.BotCommand(command="event", description="查看最近系统彩蛋与补偿记录"),
-        tg_types.BotCommand(command="bal", description="查询余额"),
-        tg_types.BotCommand(command="checkin", description="每日签到"),
-        tg_types.BotCommand(command="gift", description="回复赠送积分"),
-        tg_types.BotCommand(command="redpack", description="发拼手气红包"),
-        tg_types.BotCommand(command="redpack_pw", description="发口令红包"),
-        tg_types.BotCommand(command="rank", description="今日胜负榜"),
-        tg_types.BotCommand(command="rank_week", description="本周胜负榜"),
-        tg_types.BotCommand(command="rank_month", description="本月胜负榜"),
-        tg_types.BotCommand(command="attack", description="向某人发起 Attack 对决（回复消息使用）")
+        tg_types.BotCommand(command="dice_help", description="查看全量规则与指令指南"),
+        tg_types.BotCommand(command="dice_event", description="查看最近系统彩蛋与补偿记录"),
+        tg_types.BotCommand(command="dice_bal", description="查询余额"),
+        tg_types.BotCommand(command="dice_checkin", description="每日签到"),
+        tg_types.BotCommand(command="dice_gift", description="回复赠送积分"),
+        tg_types.BotCommand(command="dice_redpack", description="发拼手气红包"),
+        tg_types.BotCommand(command="dice_redpack_pw", description="发口令红包"),
+        tg_types.BotCommand(command="dice_rank", description="今日胜负榜"),
+        tg_types.BotCommand(command="dice_rank_week", description="本周胜负榜"),
+        tg_types.BotCommand(command="dice_rank_month", description="本月胜负榜"),
+        tg_types.BotCommand(command="dice_attack", description="向某人发起 Attack 对决（回复消息使用）")
     ]
 
     admin_commands = base_commands + [
-        tg_types.BotCommand(command="forced_stop", description="[仅限管理] 强杀异常对局"),
-        tg_types.BotCommand(command="backup_db", description="[仅限超管] 备份数据"),
-        tg_types.BotCommand(command="restore_db", description="[仅限超管] 恢复数据")
+        tg_types.BotCommand(command="dice_forced_stop", description="[仅限管理] 强杀异常对局"),
+        tg_types.BotCommand(command="dice_backup_db", description="[仅限超管] 备份数据"),
+        tg_types.BotCommand(command="dice_restore_db", description="[仅限超管] 恢复数据")
     ]
 
     try:

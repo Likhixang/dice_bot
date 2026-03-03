@@ -162,7 +162,7 @@ def get_rank_markup(period: str, board: str, uid: str) -> types.InlineKeyboardMa
 # 指令 handlers
 # ==============================
 
-@router.message(CleanTextFilter(), Command("help"))
+@router.message(CleanTextFilter(), Command("dice_help"))
 async def cmd_help(message: types.Message):
     help_text = """🎲 <b>骰子竞技场 · 指令与玩法指南</b> 🎲
 
@@ -189,9 +189,9 @@ async def cmd_help(message: types.Message):
 • <b>同舟共济</b>：连败 3 局（有积分扣）→ 自动补贴 +200 积分，重置后循环计算
 （平局 ±0 重置计数；与名次无关，以实际盈亏符号判定）
 
-🏷 <b>三、/attack 单挑对决</b>
+🏷 <b>三、/dice_attack 单挑对决</b>
 
-回复某人的消息发 <code>/attack</code> 向其发起攻击！
+回复某人的消息发 <code>/dice_attack</code> 向其发起攻击！
 
 • 发起时先扣 <b>1000 积分</b>，双方可在1分钟内反复追加（每次 +1000）
 • 💥 <b>加大力度</b>：仅发起方可按   🛡 <b>回手反击</b>：仅迎战方可按
@@ -201,16 +201,16 @@ async def cmd_help(message: types.Message):
 
 🏷 <b>四、指令大全</b>
 
-• <code>/checkin</code>：每日签到领积分。<b>连续签到5天白送两万！</b>
-• <code>/bal</code>：查看自己的可用积分余额。
-• <code>/gift 100</code>：回复某人的消息发送，直接赠送他100积分。
-• <code>/redpack 1000 5</code>：发拼手气红包（总额1000，分5个包）。
-• <code>/redpack_pw 100 2 芝麻开门</code>：发口令红包，打出"芝麻开门"才能抢。
-• <code>/attack</code>：回复某人消息发起 Attack 对决。
-• <code>/rank</code>：查看今日胜负榜（支持按钮切换净赚榜）。
-• <code>/rank_week</code>：查看本周胜负榜。
-• <code>/rank_month</code>：查看本月胜负榜。
-• <code>/event</code>：查看过去24小时系统事件（彩蛋/补偿记录）。"""
+• <code>/dice_checkin</code>：每日签到领积分。<b>连续签到5天白送两万！</b>
+• <code>/dice_bal</code>：查看自己的可用积分余额。
+• <code>/dice_gift 100</code>：回复某人的消息发送，直接赠送他100积分。
+• <code>/dice_redpack 1000 5</code>：发拼手气红包（总额1000，分5个包）。
+• <code>/dice_redpack_pw 100 2 芝麻开门</code>：发口令红包，打出"芝麻开门"才能抢。
+• <code>/dice_attack</code>：回复某人消息发起 Attack 对决。
+• <code>/dice_rank</code>：查看今日胜负榜（支持按钮切换净赚榜）。
+• <code>/dice_rank_week</code>：查看本周胜负榜。
+• <code>/dice_rank_month</code>：查看本月胜负榜。
+• <code>/dice_event</code>：查看过去24小时系统事件（彩蛋/补偿记录）。"""
     bot_msg = await message.reply(help_text)
     asyncio.create_task(delete_msgs([message, bot_msg], 60))
 
@@ -264,7 +264,7 @@ async def event_panel_watcher(chat_id: int, msg_id: int, cmd_msg_id: int):
             break
 
 
-@router.message(CleanTextFilter(), Command("event"))
+@router.message(CleanTextFilter(), Command("dice_event"))
 async def cmd_event(message: types.Message):
     uid = str(message.from_user.id)
     text, markup = await get_event_page(0, uid)
@@ -276,7 +276,7 @@ async def cmd_event(message: types.Message):
         asyncio.create_task(delete_msgs([message, bot_msg], 60))
 
 
-@router.message(CleanTextFilter(), Command("backup_db"))
+@router.message(CleanTextFilter(), Command("dice_backup_db"))
 async def cmd_backup_db(message: types.Message):
     if message.from_user.id != SUPER_ADMIN_ID:
         bot_msg = await message.reply("❌ 越权拦截")
@@ -286,7 +286,7 @@ async def cmd_backup_db(message: types.Message):
     asyncio.create_task(delete_msgs([message, bot_msg], 10))
 
 
-@router.message(CleanTextFilter(), Command("restore_db"))
+@router.message(CleanTextFilter(), Command("dice_restore_db"))
 async def cmd_restore_db(message: types.Message):
     if message.from_user.id != SUPER_ADMIN_ID:
         bot_msg = await message.reply("❌ 越权拦截")
@@ -299,7 +299,7 @@ async def cmd_restore_db(message: types.Message):
     await message.reply("⚠️ <b>高危操作警告</b> ⚠️\n\n此操作将清空并覆写当前 Redis 中的所有用户资产！\n确定要从 `backup.db` 恢复数据吗？", reply_markup=markup)
 
 
-@router.message(CleanTextFilter(), Command("checkin"))
+@router.message(CleanTextFilter(), Command("dice_checkin"))
 async def cmd_checkin(message: types.Message):
     uid = str(message.from_user.id)
     today = datetime.datetime.now(TZ_BJ).strftime("%Y%m%d")
@@ -321,11 +321,11 @@ async def cmd_checkin(message: types.Message):
     await reply_and_auto_delete(message, f"📅 <b>签到成功！</b>\n获得积分：<b>{reward}</b>{extra_msg}\n当前余额：<b>{new_bal}</b>\n当前连签：{streak}天")
 
 
-@router.message(CleanTextFilter(), Command("redpack"))
+@router.message(CleanTextFilter(), Command("dice_redpack"))
 async def cmd_redpack(message: types.Message):
     args = message.text.split()
     if len(args) < 3:
-        return await reply_and_auto_delete(message, "❌ 用法：`/redpack 总金额 个数`")
+        return await reply_and_auto_delete(message, "❌ 用法：`/dice_redpack 总金额 个数`")
     uid = str(message.from_user.id)
     if not re.match(r"^\+?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$", args[1]):
         return await reply_and_auto_delete(message, "❌ 格式错误！请输入有效数字。")
@@ -375,11 +375,11 @@ async def cmd_redpack(message: types.Message):
     asyncio.create_task(redpack_expiry_watcher(message.chat.id, bot_msg.message_id, rp_id, False, epoch))
 
 
-@router.message(CleanTextFilter(), Command("redpack_pw"))
+@router.message(CleanTextFilter(), Command("dice_redpack_pw"))
 async def cmd_redpack_pw(message: types.Message):
     args = message.text.split(maxsplit=3)
     if len(args) < 4:
-        return await reply_and_auto_delete(message, "❌ 用法：`/redpack_pw 总额 个数 口令`")
+        return await reply_and_auto_delete(message, "❌ 用法：`/dice_redpack_pw 总额 个数 口令`")
     uid = str(message.from_user.id)
     if not re.match(r"^\+?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$", args[1]):
         return await reply_and_auto_delete(message, "❌ 格式错误！请输入有效数字。")
@@ -446,7 +446,7 @@ async def cmd_redpack_pw(message: types.Message):
         asyncio.create_task(redpack_expiry_watcher(message.chat.id, bot_msg.message_id, rp_id, True, epoch))
 
 
-@router.message(CleanTextFilter(), Command("rank"))
+@router.message(CleanTextFilter(), Command("dice_rank"))
 async def cmd_rank_daily(message: types.Message):
     uid = str(message.from_user.id)
     text = await get_leaderboard_text("daily", "gross", "今日胜负榜")
@@ -455,7 +455,7 @@ async def cmd_rank_daily(message: types.Message):
     asyncio.create_task(rank_panel_watcher(message.chat.id, bot_msg.message_id, message.message_id))
 
 
-@router.message(CleanTextFilter(), Command("rank_week"))
+@router.message(CleanTextFilter(), Command("dice_rank_week"))
 async def cmd_rank_weekly(message: types.Message):
     uid = str(message.from_user.id)
     text = await get_leaderboard_text("weekly", "gross", "本周胜负榜")
@@ -464,7 +464,7 @@ async def cmd_rank_weekly(message: types.Message):
     asyncio.create_task(rank_panel_watcher(message.chat.id, bot_msg.message_id, message.message_id))
 
 
-@router.message(CleanTextFilter(), Command("rank_month"))
+@router.message(CleanTextFilter(), Command("dice_rank_month"))
 async def cmd_rank_monthly(message: types.Message):
     uid = str(message.from_user.id)
     text = await get_leaderboard_text("monthly", "gross", "本月胜负榜")
@@ -473,7 +473,7 @@ async def cmd_rank_monthly(message: types.Message):
     asyncio.create_task(rank_panel_watcher(message.chat.id, bot_msg.message_id, message.message_id))
 
 
-@router.message(CleanTextFilter(), Command("bal"))
+@router.message(CleanTextFilter(), Command("dice_bal"))
 async def check_balance(message: types.Message):
     uid = str(message.from_user.id)
     bal = await get_or_init_balance(uid)
@@ -490,11 +490,11 @@ async def check_balance(message: types.Message):
     asyncio.create_task(delete_msgs([message, bot_msg], 10))
 
 
-@router.message(CleanTextFilter(), Command("gift"))
+@router.message(CleanTextFilter(), Command("dice_gift"))
 async def cmd_gift(message: types.Message):
     args = message.text.split()
     if len(args) < 2 or not message.reply_to_message:
-        return await reply_and_auto_delete(message, "❌ 用法：回复玩家并输入 `/gift 数量`")
+        return await reply_and_auto_delete(message, "❌ 用法：回复玩家并输入 `/dice_gift 数量`")
     if not re.match(r"^\+?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$", args[1]):
         return await reply_and_auto_delete(message, "❌ 格式错误！请输入有效数字。")
     try:
@@ -530,7 +530,7 @@ async def cmd_gift(message: types.Message):
     asyncio.create_task(delete_msgs([message, bot_msg], 10))
 
 
-@router.message(CleanTextFilter(), Command("forced_stop"))
+@router.message(CleanTextFilter(), Command("dice_forced_stop"))
 async def force_stop_game(message: types.Message):
     if message.from_user.id not in ADMIN_IDS:
         bot_msg = await message.reply("❌ 越权拦截")
@@ -1123,7 +1123,7 @@ async def handle_roll_button(callback: types.CallbackQuery):
 
 
 # ==============================
-# /attack 对决系统
+# /dice_attack 对决系统
 # ==============================
 
 ATTACK_BET = 1000
@@ -1222,10 +1222,10 @@ async def _attack_watcher(chat_id: int, attack_id: str, msg_id: int):
         logging.warning(f"[attack_watcher] 结算异常 attack_id={attack_id}: {e}")
 
 
-@router.message(CleanTextFilter(), Command("attack"))
+@router.message(CleanTextFilter(), Command("dice_attack"))
 async def cmd_attack(message: types.Message):
     if not message.reply_to_message:
-        return await reply_and_auto_delete(message, "❌ 用法：回复某人的消息并发送 /attack")
+        return await reply_and_auto_delete(message, "❌ 用法：回复某人的消息并发送 /dice_attack")
 
     c_uid = str(message.from_user.id)
     c_name = message.from_user.first_name
