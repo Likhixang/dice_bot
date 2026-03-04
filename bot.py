@@ -370,6 +370,9 @@ async def main():
     ]
 
     admin_commands = base_commands + [
+        tg_types.BotCommand(command="dice_let", description="[仅限超管] 回复覆写积分"),
+        tg_types.BotCommand(command="dice_give", description="[仅限超管] 回复加积分"),
+        tg_types.BotCommand(command="dice_take", description="[仅限超管] 回复扣积分"),
         tg_types.BotCommand(command="dice_maintain", description="[仅限超管] 停机维护"),
         tg_types.BotCommand(command="dice_compensate", description="[仅限超管] 停机补偿"),
         tg_types.BotCommand(command="dice_forced_stop", description="[仅限管理] 强杀异常对局"),

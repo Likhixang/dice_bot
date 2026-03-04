@@ -25,7 +25,7 @@ ALLOWED_THREAD_ID = int(os.getenv("ALLOWED_THREAD_ID", "0"))
 
 # 每次停机修复后更新此处，停机补偿公告会自动带上本次修复说明
 LAST_FIX_DESC = (
-    "• 变更：停机维护/停机补偿改为 /dice_maintain、/dice_compensate 快捷命令"
+    "• 变更：超管调账改为 /dice_let、/dice_give、/dice_take 命令"
 )
 
 TZ_BJ = datetime.timezone(datetime.timedelta(hours=8))

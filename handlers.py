@@ -564,15 +564,18 @@ async def force_stop_game(message: types.Message):
 # 后台调账指令 (回复匹配)
 # ==============================
 
-@router.message(CleanTextFilter(), F.reply_to_message & F.text.regexp(r"^let\s+(\+?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)$"))
+@router.message(Command("dice_let"), F.reply_to_message)
 async def admin_set_balance(message: types.Message):
     if message.from_user.id != SUPER_ADMIN_ID:
         bot_msg = await message.reply("❌ 越权拦截")
         return asyncio.create_task(delete_msgs([message, bot_msg], 10))
 
-    match = re.match(r"^let\s+(\+?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)$", message.text)
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        bot_msg = await message.reply("❌ 用法：回复目标消息 /dice_let 数字")
+        return asyncio.create_task(delete_msgs([message, bot_msg], 10))
     try:
-        amount = round(float(match.group(1)), 2)
+        amount = round(float(parts[1]), 2)
     except ValueError:
         bot_msg = await message.reply("❌ 格式错误！请输入有效数字。")
         return asyncio.create_task(delete_msgs([message, bot_msg], 10))
@@ -587,20 +590,24 @@ async def admin_set_balance(message: types.Message):
     asyncio.create_task(delete_msgs([message, bot_msg], 10))
 
 
-@router.message(CleanTextFilter(), F.reply_to_message & F.text.regexp(r"^([+-]\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)$"))
-async def admin_adjust_balance(message: types.Message):
+@router.message(Command("dice_give"), F.reply_to_message)
+async def admin_give_balance(message: types.Message):
     if message.from_user.id != SUPER_ADMIN_ID:
         bot_msg = await message.reply("❌ 越权拦截")
         return asyncio.create_task(delete_msgs([message, bot_msg], 10))
 
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        bot_msg = await message.reply("❌ 用法：回复目标消息 /dice_give 数字")
+        return asyncio.create_task(delete_msgs([message, bot_msg], 10))
     try:
-        amount = round(float(message.text), 2)
+        amount = round(float(parts[1]), 2)
     except ValueError:
         bot_msg = await message.reply("❌ 格式错误！请输入有效数字。")
         return asyncio.create_task(delete_msgs([message, bot_msg], 10))
-
-    if amount == 0:
-        return
+    if amount <= 0:
+        bot_msg = await message.reply("❌ 数字必须大于0")
+        return asyncio.create_task(delete_msgs([message, bot_msg], 10))
 
     target_uid = str(message.reply_to_message.from_user.id)
     if target_uid == str(BOT_ID) or message.reply_to_message.from_user.is_bot:
@@ -608,7 +615,36 @@ async def admin_adjust_balance(message: types.Message):
         return asyncio.create_task(delete_msgs([message, bot_msg], 10))
 
     await update_balance(target_uid, amount)
-    bot_msg = await message.reply(f"👑 <b>系统调账</b> 已完成。")
+    bot_msg = await message.reply(f"👑 <b>系统调账</b> +{amount:g} 已完成。")
+    asyncio.create_task(delete_msgs([message, bot_msg], 10))
+
+
+@router.message(Command("dice_take"), F.reply_to_message)
+async def admin_take_balance(message: types.Message):
+    if message.from_user.id != SUPER_ADMIN_ID:
+        bot_msg = await message.reply("❌ 越权拦截")
+        return asyncio.create_task(delete_msgs([message, bot_msg], 10))
+
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        bot_msg = await message.reply("❌ 用法：回复目标消息 /dice_take 数字")
+        return asyncio.create_task(delete_msgs([message, bot_msg], 10))
+    try:
+        amount = round(float(parts[1]), 2)
+    except ValueError:
+        bot_msg = await message.reply("❌ 格式错误！请输入有效数字。")
+        return asyncio.create_task(delete_msgs([message, bot_msg], 10))
+    if amount <= 0:
+        bot_msg = await message.reply("❌ 数字必须大于0")
+        return asyncio.create_task(delete_msgs([message, bot_msg], 10))
+
+    target_uid = str(message.reply_to_message.from_user.id)
+    if target_uid == str(BOT_ID) or message.reply_to_message.from_user.is_bot:
+        bot_msg = await message.reply("❌ 禁止贿赂荷官🤫")
+        return asyncio.create_task(delete_msgs([message, bot_msg], 10))
+
+    await update_balance(target_uid, -amount)
+    bot_msg = await message.reply(f"👑 <b>系统调账</b> -{amount:g} 已完成。")
     asyncio.create_task(delete_msgs([message, bot_msg], 10))
 
 
