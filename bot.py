@@ -4,6 +4,7 @@ import logging
 import time
 
 from aiogram import F, Router
+from aiogram.filters import Command
 
 from config import LAST_FIX_DESC, SUPER_ADMIN_ID, ALLOWED_CHAT_ID, ALLOWED_THREAD_ID
 from core import bot, dp, redis, CleanTextFilter
@@ -40,184 +41,189 @@ async def _compensation_cleanup(chat_id: int, msg_id: int, delay: float, redis_k
         await redis.delete(redis_key)
 
 
+@blackhole_router.message(Command("dice_maintain"))
+async def handle_maintain_cmd(message):
+    if message.from_user.id != SUPER_ADMIN_ID:
+        return
+    asyncio.create_task(delete_msgs([message], 0))
+    # 1. 全群退款对局
+    active_groups = await redis.smembers("active_groups")
+    destroyed = 0
+    for cid_str in active_groups:
+        for gid in list(await redis.smembers(f"chat_games:{cid_str}")):
+            try:
+                await refund_game(int(cid_str), gid)
+                destroyed += 1
+            except Exception as e:
+                logging.warning(f"[maintenance] refund {gid}: {e}")
+    # 2. 终止所有活跃 Attack 并退款
+    attack_refunded = 0
+    cursor = 0
+    while True:
+        cursor, keys = await redis.scan(cursor, match="active_attack_by:*", count=100)
+        for key in keys:
+            attack_id = await redis.get(key)
+            if not attack_id:
+                continue
+            atk = await redis.hgetall(f"attack:{attack_id}")
+            if not atk:
+                await redis.delete(key)
+                continue
+            c_uid = atk.get("challenger_uid")
+            d_uid = atk.get("defender_uid")
+            c_total = float(atk.get("challenger_total", 0))
+            d_total = float(atk.get("defender_total", 0))
+            if c_uid and c_total > 0:
+                await update_balance(c_uid, c_total)
+            if d_uid and d_total > 0:
+                await update_balance(d_uid, d_total)
+            atk_chat_id = atk.get("chat_id")
+            atk_msg_id = atk.get("msg_id")
+            if atk_chat_id and atk_msg_id:
+                try:
+                    await bot.delete_message(int(atk_chat_id), int(atk_msg_id))
+                except Exception:
+                    pass
+            await redis.delete(f"attack:{attack_id}", key)
+            if d_uid:
+                await redis.delete(f"active_attack_target:{d_uid}")
+            attack_refunded += 1
+        if cursor == 0:
+            break
+    # 3. 退回所有活跃 pw 红包
+    active_rps = await redis.smembers("active_pw_rps")
+    rp_refunded = 0
+    affected_rp_chats = set()
+    for rp_id in list(active_rps):
+        meta = await redis.hgetall(f"redpack_meta:{rp_id}")
+        if not meta:
+            await redis.srem("active_pw_rps", rp_id)
+            continue
+        amounts = await redis.lrange(f"redpack_list:{rp_id}", 0, -1)
+        total = sum(float(a) for a in amounts)
+        if total > 0 and (sid := meta.get("sender_uid")):
+            await update_balance(sid, total)
+        cid_rp = meta.get("chat_id", "")
+        mid_rp = meta.get("msg_id", "0")
+        if cid_rp:
+            affected_rp_chats.add(cid_rp)
+        if cid_rp and mid_rp and int(mid_rp) > 0:
+            asyncio.create_task(delete_msg_by_id(int(cid_rp), int(mid_rp)))
+        await redis.delete(f"redpack_meta:{rp_id}", f"redpack_list:{rp_id}")
+        await redis.srem("active_pw_rps", rp_id)
+        rp_refunded += 1
+    # 4. 清理骰子聚合面板
+    for cid_dc in affected_rp_chats:
+        panel = await redis.get(f"dice_panel_msg:{cid_dc}")
+        if panel:
+            try:
+                await bot.delete_message(int(cid_dc), int(panel))
+            except Exception:
+                pass
+            await redis.delete(f"dice_panel_msg:{cid_dc}")
+    # 4b. 销毁当前群所有面板类延时消息（rank / event）
+    for pattern in [f"rank_msg:{message.chat.id}:*", f"event_msg:{message.chat.id}:*"]:
+        cursor = 0
+        while True:
+            cursor, keys = await redis.scan(cursor, match=pattern, count=100)
+            for key in keys:
+                parts = key.split(":")
+                if len(parts) >= 3:
+                    try:
+                        await bot.delete_message(message.chat.id, int(parts[-1]))
+                    except Exception:
+                        pass
+                await redis.delete(key)
+            if cursor == 0:
+                break
+    # 5. 先解钉旧公告（补偿或上一次维护）
+    for old_key in [f"compensation_pin:{message.chat.id}", f"maintenance_pin:{message.chat.id}"]:
+        old_id = await redis.get(old_key)
+        if old_id:
+            old_msg = int(old_id.split(":")[0])
+            try:
+                await bot.unpin_chat_message(chat_id=message.chat.id, message_id=old_msg)
+            except Exception:
+                pass
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=old_msg)
+            except Exception:
+                pass
+            await redis.delete(old_key)
+    # 6. 发维护公告并置顶
+    body = (f"🔧 <b>【停机维护公告】</b>\n\n系统即将进行维护，暂时停止服务。\n"
+            f"• 已销毁 <b>{destroyed}</b> 个进行中对局并全额退款\n"
+            f"• 已终止 <b>{attack_refunded}</b> 个 Attack 并全额退款\n"
+            f"• 已退回 <b>{rp_refunded}</b> 个未过期红包\n\n"
+            f"维护完成后将置顶「停机补偿」公告并发放补偿积分，感谢耐心等待！")
+    announce = await bot.send_message(message.chat.id, body, message_thread_id=ALLOWED_THREAD_ID or None)
+    try:
+        await pin_in_topic(message.chat.id, announce.message_id, disable_notification=False)
+    except Exception as e:
+        logging.warning(f"[maintenance] 置顶失败: {e}")
+    await redis.set(f"maintenance_pin:{message.chat.id}", str(announce.message_id))
+    await redis.set(f"maintenance:{message.chat.id}", "1")
+
+
+@blackhole_router.message(Command("dice_compensate"))
+async def handle_compensate_cmd(message):
+    if message.from_user.id != SUPER_ADMIN_ID:
+        return
+    # 取 /dice_compensate 后面的自定义说明
+    extra_desc = (message.text or "").split(None, 1)[1].strip() if (message.text or "").strip().count(" ") >= 1 else ""
+    uids = await redis.hkeys("user_names")
+    for uid in uids:
+        await update_balance(uid, 500)
+    record = json.dumps({"ts": int(time.time()), "type": "compensation", "desc": extra_desc or "停机补偿", "bonus": 500, "count": len(uids)}, ensure_ascii=False)
+    await redis.lpush("event_log", record)
+    await redis.ltrim("event_log", 0, 199)
+    asyncio.create_task(delete_msgs([message], 0))
+    # 旧维护公告（如有）先解钉+删除
+    old_maint_id = await redis.get(f"maintenance_pin:{message.chat.id}")
+    if old_maint_id:
+        try:
+            await bot.unpin_chat_message(chat_id=message.chat.id, message_id=int(old_maint_id))
+        except Exception:
+            pass
+        try:
+            await bot.delete_message(chat_id=message.chat.id, message_id=int(old_maint_id))
+        except Exception:
+            pass
+        await redis.delete(f"maintenance_pin:{message.chat.id}")
+    await redis.delete(f"maintenance:{message.chat.id}")
+    old_comp_msg_id = await redis.get(f"compensation_pin:{message.chat.id}")
+    if old_comp_msg_id:
+        old_comp_msg = int(old_comp_msg_id.split(":")[0])
+        try:
+            await bot.unpin_chat_message(chat_id=message.chat.id, message_id=old_comp_msg)
+        except:
+            pass
+        try:
+            await bot.delete_message(chat_id=message.chat.id, message_id=old_comp_msg)
+        except:
+            pass
+    body = (
+        f"🔧 <b>【停机补偿】</b>\n\n"
+        f"非常抱歉给大家带来不便！\n"
+        f"系统已向全体 <b>{len(uids)}</b> 名玩家发放 <b>+500</b> 积分补偿！\n"
+    )
+    desc = extra_desc or LAST_FIX_DESC
+    if desc:
+        body += f"\n📋 <b>本次更新内容：</b>\n{desc}\n"
+    body += "\n感谢耐心等待，继续欢乐！"
+    announce = await bot.send_message(message.chat.id, body, message_thread_id=ALLOWED_THREAD_ID or None)
+    try:
+        await pin_in_topic(message.chat.id, announce.message_id, disable_notification=False)
+    except Exception:
+        pass
+    await redis.set(f"compensation_pin:{message.chat.id}", f"{announce.message_id}:{int(time.time())}")
+    asyncio.create_task(_compensation_cleanup(message.chat.id, announce.message_id, 1800, f"compensation_pin:{message.chat.id}"))
+
+
 @blackhole_router.message(CleanTextFilter(), F.text)
 async def handle_pw_redpack_text(message):
     text = message.text.strip()
     if not text:
-        return
-
-    # ── 停机维护（超管专属，精确匹配）──
-    if text == "停机维护" and message.from_user.id == SUPER_ADMIN_ID:
-        asyncio.create_task(delete_msgs([message], 0))
-        # 1. 全群退款对局
-        active_groups = await redis.smembers("active_groups")
-        destroyed = 0
-        for cid_str in active_groups:
-            for gid in list(await redis.smembers(f"chat_games:{cid_str}")):
-                try:
-                    await refund_game(int(cid_str), gid)
-                    destroyed += 1
-                except Exception as e:
-                    logging.warning(f"[maintenance] refund {gid}: {e}")
-        # 2. 终止所有活跃 Attack 并退款
-        attack_refunded = 0
-        cursor = 0
-        while True:
-            cursor, keys = await redis.scan(cursor, match="active_attack_by:*", count=100)
-            for key in keys:
-                attack_id = await redis.get(key)
-                if not attack_id:
-                    continue
-                atk = await redis.hgetall(f"attack:{attack_id}")
-                if not atk:
-                    await redis.delete(key)
-                    continue
-                c_uid = atk.get("challenger_uid")
-                d_uid = atk.get("defender_uid")
-                c_total = float(atk.get("challenger_total", 0))
-                d_total = float(atk.get("defender_total", 0))
-                if c_uid and c_total > 0:
-                    await update_balance(c_uid, c_total)
-                if d_uid and d_total > 0:
-                    await update_balance(d_uid, d_total)
-                atk_chat_id = atk.get("chat_id")
-                atk_msg_id = atk.get("msg_id")
-                if atk_chat_id and atk_msg_id:
-                    try:
-                        await bot.delete_message(int(atk_chat_id), int(atk_msg_id))
-                    except Exception:
-                        pass
-                await redis.delete(f"attack:{attack_id}", key)
-                if d_uid:
-                    await redis.delete(f"active_attack_target:{d_uid}")
-                attack_refunded += 1
-            if cursor == 0:
-                break
-        # 3. 退回所有活跃 pw 红包
-        active_rps = await redis.smembers("active_pw_rps")
-        rp_refunded = 0
-        affected_rp_chats = set()
-        for rp_id in list(active_rps):
-            meta = await redis.hgetall(f"redpack_meta:{rp_id}")
-            if not meta:
-                await redis.srem("active_pw_rps", rp_id)
-                continue
-            amounts = await redis.lrange(f"redpack_list:{rp_id}", 0, -1)
-            total = sum(float(a) for a in amounts)
-            if total > 0 and (sid := meta.get("sender_uid")):
-                await update_balance(sid, total)
-            cid_rp = meta.get("chat_id", "")
-            mid_rp = meta.get("msg_id", "0")
-            if cid_rp:
-                affected_rp_chats.add(cid_rp)
-            if cid_rp and mid_rp and int(mid_rp) > 0:
-                asyncio.create_task(delete_msg_by_id(int(cid_rp), int(mid_rp)))
-            await redis.delete(f"redpack_meta:{rp_id}", f"redpack_list:{rp_id}")
-            await redis.srem("active_pw_rps", rp_id)
-            rp_refunded += 1
-        # 4. 清理骰子聚合面板
-        for cid_dc in affected_rp_chats:
-            panel = await redis.get(f"dice_panel_msg:{cid_dc}")
-            if panel:
-                try:
-                    await bot.delete_message(int(cid_dc), int(panel))
-                except Exception:
-                    pass
-                await redis.delete(f"dice_panel_msg:{cid_dc}")
-        # 4b. 销毁当前群所有面板类延时消息（rank / event）
-        for pattern in [f"rank_msg:{message.chat.id}:*", f"event_msg:{message.chat.id}:*"]:
-            cursor = 0
-            while True:
-                cursor, keys = await redis.scan(cursor, match=pattern, count=100)
-                for key in keys:
-                    parts = key.split(":")
-                    if len(parts) >= 3:
-                        try:
-                            await bot.delete_message(message.chat.id, int(parts[-1]))
-                        except Exception:
-                            pass
-                    await redis.delete(key)
-                if cursor == 0:
-                    break
-        # 4. 先解钉旧公告（补偿或上一次维护）
-        for old_key in [f"compensation_pin:{message.chat.id}", f"maintenance_pin:{message.chat.id}"]:
-            old_id = await redis.get(old_key)
-            if old_id:
-                old_msg = int(old_id.split(":")[0])
-                try:
-                    await bot.unpin_chat_message(chat_id=message.chat.id, message_id=old_msg)
-                except Exception:
-                    pass
-                try:
-                    await bot.delete_message(chat_id=message.chat.id, message_id=old_msg)
-                except Exception:
-                    pass
-                await redis.delete(old_key)
-        # 5. 发维护公告并置顶
-        body = (f"🔧 <b>【停机维护公告】</b>\n\n系统即将进行维护，暂时停止服务。\n"
-                f"• 已销毁 <b>{destroyed}</b> 个进行中对局并全额退款\n"
-                f"• 已终止 <b>{attack_refunded}</b> 个 Attack 并全额退款\n"
-                f"• 已退回 <b>{rp_refunded}</b> 个未过期红包\n\n"
-                f"维护完成后将置顶「停机补偿」公告并发放补偿积分，感谢耐心等待！")
-        announce = await bot.send_message(message.chat.id, body, message_thread_id=ALLOWED_THREAD_ID or None)
-        try:
-            await pin_in_topic(message.chat.id, announce.message_id, disable_notification=False)
-        except Exception as e:
-            logging.warning(f"[maintenance] 置顶失败: {e}")
-        await redis.set(f"maintenance_pin:{message.chat.id}", str(announce.message_id))
-        await redis.set(f"maintenance:{message.chat.id}", "1")
-        return
-
-    # ── 停机补偿（超管专属）──
-    if text.startswith("停机补偿") and message.from_user.id == SUPER_ADMIN_ID:
-        extra_desc = text[4:].strip()  # 取"停机补偿"后面的自定义说明
-        uids = await redis.hkeys("user_names")
-        for uid in uids:
-            await update_balance(uid, 500)
-        record = json.dumps({"ts": int(time.time()), "type": "compensation", "desc": extra_desc or "停机补偿", "bonus": 500, "count": len(uids)}, ensure_ascii=False)
-        await redis.lpush("event_log", record)
-        await redis.ltrim("event_log", 0, 199)
-        asyncio.create_task(delete_msgs([message], 0))
-        # 旧维护公告（如有）先解钉+删除
-        old_maint_id = await redis.get(f"maintenance_pin:{message.chat.id}")
-        if old_maint_id:
-            try:
-                await bot.unpin_chat_message(chat_id=message.chat.id, message_id=int(old_maint_id))
-            except Exception:
-                pass
-            try:
-                await bot.delete_message(chat_id=message.chat.id, message_id=int(old_maint_id))
-            except Exception:
-                pass
-            await redis.delete(f"maintenance_pin:{message.chat.id}")
-        await redis.delete(f"maintenance:{message.chat.id}")
-        old_comp_msg_id = await redis.get(f"compensation_pin:{message.chat.id}")
-        if old_comp_msg_id:
-            old_comp_msg = int(old_comp_msg_id.split(":")[0])
-            try:
-                await bot.unpin_chat_message(chat_id=message.chat.id, message_id=old_comp_msg)
-            except:
-                pass
-            try:
-                await bot.delete_message(chat_id=message.chat.id, message_id=old_comp_msg)
-            except:
-                pass
-        body = (
-            f"🔧 <b>【停机补偿】</b>\n\n"
-            f"非常抱歉给大家带来不便！\n"
-            f"系统已向全体 <b>{len(uids)}</b> 名玩家发放 <b>+500</b> 积分补偿！\n"
-        )
-        desc = extra_desc or LAST_FIX_DESC
-        if desc:
-            body += f"\n📋 <b>本次更新内容：</b>\n{desc}\n"
-        body += "\n感谢耐心等待，继续欢乐！"
-        announce = await bot.send_message(message.chat.id, body, message_thread_id=ALLOWED_THREAD_ID or None)
-        try:
-            await pin_in_topic(message.chat.id, announce.message_id, disable_notification=False)
-        except Exception:
-            pass
-        await redis.set(f"compensation_pin:{message.chat.id}", f"{announce.message_id}:{int(time.time())}")
-        asyncio.create_task(_compensation_cleanup(message.chat.id, announce.message_id, 1800, f"compensation_pin:{message.chat.id}"))
         return
 
     active_rps = await redis.smembers("active_pw_rps")
@@ -364,6 +370,8 @@ async def main():
     ]
 
     admin_commands = base_commands + [
+        tg_types.BotCommand(command="dice_maintain", description="[仅限超管] 停机维护"),
+        tg_types.BotCommand(command="dice_compensate", description="[仅限超管] 停机补偿"),
         tg_types.BotCommand(command="dice_forced_stop", description="[仅限管理] 强杀异常对局"),
         tg_types.BotCommand(command="dice_backup_db", description="[仅限超管] 备份数据"),
         tg_types.BotCommand(command="dice_restore_db", description="[仅限超管] 恢复数据")
