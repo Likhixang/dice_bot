@@ -3,6 +3,7 @@ import datetime
 import json
 import logging
 import math
+import os
 import random
 import re
 import sqlite3
@@ -18,7 +19,7 @@ from core import bot, redis, CleanTextFilter
 from utils import (get_mention, safe_html, delete_msgs, delete_msg_by_id,
                    reply_and_auto_delete, safe_zrevrange, safe_zrange, delete_msgs_by_ids)
 from balance import get_or_init_balance, update_balance, get_period_keys
-from tasks import perform_backup
+from tasks import perform_backup, get_latest_backup_path, BACKUP_KEEP
 from game import start_game_creation, start_rolling_phase, rank_panel_watcher, refund_game
 from game_settle import process_dice_value
 from redpack import (build_redpack_panel, refresh_dice_panel, attempt_claim_pw_redpack,
@@ -183,13 +184,23 @@ async def cmd_help(message: types.Message):
 • <b>定员死等局</b>：发送 <code>大100 3 多 4</code>
 （结尾的 4 代表必须死等凑齐4人，少一个都不发车）
 
-🏷 <b>二、连胜 / 连败奖惩</b>
+🏷 <b>二、骰子计算规则</b>
+
+• 每位玩家先投 <b>N</b> 颗（1-5 颗），系统按该组骰子算分。
+• <b>底分</b> = 所有骰子点数之和。
+• <b>同点加成</b>：每多一颗重复点数 +1（如 <code>[2,2,5]</code> +1、<code>[4,4,4]</code> +2）。
+• <b>顺子翻倍</b>：当点数互不重复且连续（至少3颗）时，整组 ×2（如 <code>[1,2,3]</code>、<code>[2,3,4,5]</code>）。
+• <b>最终点数</b> = （底分 + 同点加成，顺子再翻倍）后取个位（<code>%10</code>）。
+• 比<b>大</b>：点数越大越强；比<b>小</b>：点数越小越强；同分自动加赛，每轮并列玩家各补投1颗。
+• 超时未投会记为逃跑判负；加赛最多到 20 颗后强制清算。
+
+🏷 <b>三、连胜 / 连败奖惩</b>
 
 • <b>乐善好施</b>：连赢 3 局（有积分加）→ 自动扣 200 积分，重置后循环计算
 • <b>同舟共济</b>：连败 3 局（有积分扣）→ 自动补贴 +200 积分，重置后循环计算
 （平局 ±0 重置计数；与名次无关，以实际盈亏符号判定）
 
-🏷 <b>三、/dice_attack 单挑对决</b>
+🏷 <b>四、/dice_attack 单挑对决</b>
 
 回复某人的消息发 <code>/dice_attack</code> 向其发起攻击！
 
@@ -199,7 +210,7 @@ async def cmd_help(message: types.Message):
 • 1分钟后自动结算：赢家取回本金 + 缴获对方 <b>90%</b> 投入（10% 销毁防刷）
 • 对方未回应：全额退款，原面板自动销毁
 
-🏷 <b>四、指令大全</b>
+🏷 <b>五、指令大全</b>
 
 • <code>/dice_checkin</code>：每日签到领积分。<b>连续签到5天白送两万！</b>
 • <code>/dice_bal</code>：查看自己的可用积分余额。
@@ -282,7 +293,13 @@ async def cmd_backup_db(message: types.Message):
         bot_msg = await message.reply("❌ 越权拦截")
         return asyncio.create_task(delete_msgs([message, bot_msg], 10))
     count = await perform_backup()
-    bot_msg = await message.reply(f"✅ <b>手动备份完成！</b>\n当前 Redis 核心资产已全部写入 SQLite 物理数据库（共 {count} 条）。")
+    latest = get_latest_backup_path() or "无"
+    bot_msg = await message.reply(
+        f"✅ <b>手动备份完成！</b>\n"
+        f"当前 Redis 核心资产已写入 SQLite（共 {count} 条）。\n"
+        f"🗂 最新备份：<code>{latest}</code>\n"
+        f"♻️ 仅保留最近 <b>{BACKUP_KEEP}</b> 份。"
+    )
     asyncio.create_task(delete_msgs([message, bot_msg], 10))
 
 
@@ -296,7 +313,15 @@ async def cmd_restore_db(message: types.Message):
         types.InlineKeyboardButton(text="⚠️ 确认覆盖恢复", callback_data="confirm_restore"),
         types.InlineKeyboardButton(text="❌ 取消", callback_data="cancel_restore")
     ]])
-    await message.reply("⚠️ <b>高危操作警告</b> ⚠️\n\n此操作将清空并覆写当前 Redis 中的所有用户资产！\n确定要从 `backup.db` 恢复数据吗？", reply_markup=markup)
+    latest = get_latest_backup_path()
+    latest_text = f"<code>{latest}</code>" if latest else "（未找到可用备份）"
+    await message.reply(
+        "⚠️ <b>高危操作警告</b> ⚠️\n\n"
+        "此操作将清空并覆写当前 Redis 中的所有用户资产！\n"
+        f"将使用最新备份：{latest_text}\n"
+        "确定要继续恢复吗？",
+        reply_markup=markup,
+    )
 
 
 @router.message(CleanTextFilter(), Command("dice_checkin"))
@@ -772,9 +797,19 @@ async def handle_confirm_restore_cb(callback: types.CallbackQuery):
     except:
         pass
 
+    backup_path = get_latest_backup_path()
+    if not backup_path:
+        try:
+            await callback.message.edit_text("⚠️ 未找到可用备份文件，无法恢复！")
+        except:
+            pass
+        return
+
     def db_read():
         try:
-            conn = sqlite3.connect("backup.db")
+            if not os.path.exists(backup_path):
+                return "备份文件不存在"
+            conn = sqlite3.connect(backup_path)
             c = conn.cursor()
             c.execute("SELECT uid, balance, name, last_checkin, streak FROM users")
             rows = c.fetchall()
@@ -805,7 +840,11 @@ async def handle_confirm_restore_cb(callback: types.CallbackQuery):
             await redis.hset(f"user_data:{uid}", mapping={"last_checkin": last_checkin, "streak": str(streak)})
 
     try:
-        await callback.message.edit_text(f"✅ <b>系统恢复成功！</b>\n已恢复 <b>{len(rows)}</b> 个用户的核心资产。")
+        await callback.message.edit_text(
+            f"✅ <b>系统恢复成功！</b>\n"
+            f"来源文件：<code>{backup_path}</code>\n"
+            f"已恢复 <b>{len(rows)}</b> 个用户的核心资产。"
+        )
     except:
         pass
     asyncio.create_task(delete_msgs([callback.message], 10))

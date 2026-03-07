@@ -1,7 +1,9 @@
 import asyncio
 import datetime
+import glob
 import json
 import logging
+import os
 import re
 import sqlite3
 import time
@@ -30,13 +32,23 @@ HELP_TEXT = """🎲 <b>骰子竞技场 · 指令与玩法指南</b> 🎲
 • <b>定员死等局</b>：发送 <code>大100 3 多 4</code>
 （结尾的 4 代表必须死等凑齐4人，少一个都不发车）
 
-🏷 <b>二、连胜 / 连败奖惩</b>
+🏷 <b>二、骰子计算规则</b>
+
+• 每位玩家先投 <b>N</b> 颗（1-5 颗），系统按该组骰子算分。
+• <b>底分</b> = 所有骰子点数之和。
+• <b>同点加成</b>：每多一颗重复点数 +1（如 <code>[2,2,5]</code> +1、<code>[4,4,4]</code> +2）。
+• <b>顺子翻倍</b>：当点数互不重复且连续（至少3颗）时，整组 ×2（如 <code>[1,2,3]</code>、<code>[2,3,4,5]</code>）。
+• <b>最终点数</b> = （底分 + 同点加成，顺子再翻倍）后取个位（<code>%10</code>）。
+• 比<b>大</b>：点数越大越强；比<b>小</b>：点数越小越强；同分自动加赛，每轮并列玩家各补投1颗。
+• 超时未投会记为逃跑判负；加赛最多到 20 颗后强制清算。
+
+🏷 <b>三、连胜 / 连败奖惩</b>
 
 • <b>乐善好施</b>：连赢 3 局（有积分加）→ 自动扣 200 积分，重置后循环计算
 • <b>同舟共济</b>：连败 3 局（有积分扣）→ 自动补贴 +200 积分，重置后循环计算
 （平局 ±0 重置计数；与名次无关，以实际盈亏符号判定）
 
-🏷 <b>三、/dice_attack 单挑对决</b>
+🏷 <b>四、/dice_attack 单挑对决</b>
 
 回复某人的消息发 <code>/dice_attack</code> 向其发起攻击！
 
@@ -46,7 +58,7 @@ HELP_TEXT = """🎲 <b>骰子竞技场 · 指令与玩法指南</b> 🎲
 • 1分钟后自动结算：赢家取回本金 + 随机奖励 <b>2000–20000</b> 积分
 • 对方未回应：全额退款，原面板自动销毁
 
-🏷 <b>四、指令大全</b>
+🏷 <b>五、指令大全</b>
 
 • <code>/dice_checkin</code>：每日签到领积分。<b>连续签到5天白送两万！</b>
 • <code>/dice_bal</code>：查看自己的可用积分余额。
@@ -73,6 +85,40 @@ _DONGZHI_DAY = {
     2032: 21, 2033: 22, 2034: 22, 2035: 22,
 }
 
+BACKUP_GLOB = "backup_*.db"
+BACKUP_KEEP = 3
+
+
+def list_backup_files() -> list[str]:
+    files = sorted(glob.glob(BACKUP_GLOB), reverse=True)
+    if not files and os.path.exists("backup.db"):
+        return ["backup.db"]
+    return files
+
+
+def get_latest_backup_path() -> str | None:
+    files = list_backup_files()
+    return files[0] if files else None
+
+
+def _new_backup_path() -> str:
+    ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
+    return f"backup_{ts}.db"
+
+
+def _prune_old_backups() -> None:
+    files = sorted(glob.glob(BACKUP_GLOB), reverse=True)
+    for stale in files[BACKUP_KEEP:]:
+        try:
+            os.remove(stale)
+        except OSError as e:
+            logging.warning(f"清理旧备份失败: {stale} err={e}")
+    if files and os.path.exists("backup.db"):
+        try:
+            os.remove("backup.db")
+        except OSError as e:
+            logging.warning(f"清理旧格式备份失败: backup.db err={e}")
+
 
 async def perform_backup() -> int:
     keys = []
@@ -89,8 +135,10 @@ async def perform_backup() -> int:
         streak = int(u_data.get("streak", 0))
         users_data.append((uid, bal, name, last_checkin, streak))
 
+    backup_file = _new_backup_path()
+
     def db_write():
-        conn = sqlite3.connect("backup.db")
+        conn = sqlite3.connect(backup_file)
         c = conn.cursor()
         c.execute('''CREATE TABLE IF NOT EXISTS users
                      (uid TEXT PRIMARY KEY, balance REAL, name TEXT, last_checkin TEXT, streak INTEGER)''')
@@ -102,7 +150,8 @@ async def perform_backup() -> int:
 
     if users_data:
         await asyncio.to_thread(db_write)
-        logging.info(f"✅ SQLite 物理备份完成，共写入 {len(users_data)} 条记录。")
+        _prune_old_backups()
+        logging.info(f"✅ SQLite 物理备份完成，共写入 {len(users_data)} 条记录。文件: {backup_file}")
         return len(users_data)
     return 0
 
@@ -115,10 +164,11 @@ async def daily_backup_task():
         await asyncio.sleep((next_run - now).total_seconds())
 
         count = await perform_backup()
+        latest = get_latest_backup_path() or "无"
         try:
             await bot.send_message(
                 chat_id=SUPER_ADMIN_ID,
-                text=f"🛡 <b>系统自动通报：每小时灾备完成</b>\n\n⏰ 时间：{datetime.datetime.now(TZ_BJ).strftime('%Y-%m-%d %H:%M:%S')}\n📦 备份条数：<b>{count}</b> 条核心资产\n✅ 已安全写入本地 <code>backup.db</code> 物理数据库。"
+                text=f"🛡 <b>系统自动通报：每小时灾备完成</b>\n\n⏰ 时间：{datetime.datetime.now(TZ_BJ).strftime('%Y-%m-%d %H:%M:%S')}\n📦 备份条数：<b>{count}</b> 条核心资产\n🗂 最新备份：<code>{latest}</code>\n♻️ 仅保留最近 <b>{BACKUP_KEEP}</b> 份。"
             )
         except Exception as e:
             logging.error(f"每小时备份通报超管失败: {e}")
