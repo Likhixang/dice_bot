@@ -23,9 +23,17 @@ if not ADMIN_IDS:
 ALLOWED_CHAT_ID = int(os.getenv("ALLOWED_CHAT_ID", "0"))
 ALLOWED_THREAD_ID = int(os.getenv("ALLOWED_THREAD_ID", "0"))
 
+# 运行模式：polling / webhook
+RUN_MODE = os.getenv("RUN_MODE", "webhook").strip().lower()
+WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "https://dc.khixang.dpdns.org").strip()
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/telegram/webhook").strip() or "/telegram/webhook"
+WEBHOOK_HOST = os.getenv("WEBHOOK_HOST", "0.0.0.0").strip() or "0.0.0.0"
+WEBHOOK_PORT = int(os.getenv("WEBHOOK_PORT", "9999"))
+WEBHOOK_SECRET_TOKEN = os.getenv("WEBHOOK_SECRET_TOKEN", "").strip()
+
 # 每次停机修复后更新此处，停机补偿公告会自动带上本次修复说明
 LAST_FIX_DESC = (
-    "• 变更：超管调账改为 /dice_let、/dice_give、/dice_take 命令"
+    "• 新增：比大出9点/比小出0点「太幸运，回馈社会」-200 积分"
 )
 
 TZ_BJ = datetime.timezone(datetime.timedelta(hours=8))

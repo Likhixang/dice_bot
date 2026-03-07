@@ -5,8 +5,21 @@ import time
 
 from aiogram import F, Router
 from aiogram.filters import Command
+from aiohttp import web
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
-from config import LAST_FIX_DESC, SUPER_ADMIN_ID, ALLOWED_CHAT_ID, ALLOWED_THREAD_ID
+from config import (
+    LAST_FIX_DESC,
+    SUPER_ADMIN_ID,
+    ALLOWED_CHAT_ID,
+    ALLOWED_THREAD_ID,
+    RUN_MODE,
+    WEBHOOK_BASE_URL,
+    WEBHOOK_PATH,
+    WEBHOOK_HOST,
+    WEBHOOK_PORT,
+    WEBHOOK_SECRET_TOKEN,
+)
 from core import bot, dp, redis, CleanTextFilter
 from utils import delete_msgs, delete_msg_by_id, pin_in_topic
 from balance import update_balance
@@ -397,7 +410,69 @@ async def main():
     except Exception as e:
         logging.warning(f"推送菜单失败: {e}")
 
-    await dp.start_polling(bot)
+    runner: web.AppRunner | None = None
+    configured_mode = (RUN_MODE or "polling").strip().lower()
+    if configured_mode not in {"polling", "webhook"}:
+        logging.warning("未知 RUN_MODE=%s，已回退到 polling", RUN_MODE)
+        configured_mode = "polling"
+
+    effective_mode = configured_mode
+    if configured_mode == "webhook" and not WEBHOOK_BASE_URL:
+        logging.warning("WEBHOOK_BASE_URL 未配置，已自动回退到 polling 模式")
+        effective_mode = "polling"
+
+    webhook_path = WEBHOOK_PATH if WEBHOOK_PATH.startswith("/") else f"/{WEBHOOK_PATH}"
+
+    try:
+        if effective_mode == "webhook":
+            webhook_url = f"{WEBHOOK_BASE_URL.rstrip('/')}{webhook_path}"
+            await bot.set_webhook(
+                url=webhook_url,
+                secret_token=WEBHOOK_SECRET_TOKEN or None,
+                drop_pending_updates=True,
+            )
+
+            app = web.Application()
+            request_handler = SimpleRequestHandler(
+                dispatcher=dp,
+                bot=bot,
+                secret_token=WEBHOOK_SECRET_TOKEN or None,
+            )
+            request_handler.register(app, path=webhook_path)
+            setup_application(app, dp, bot=bot)
+
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, host=WEBHOOK_HOST, port=WEBHOOK_PORT)
+            await site.start()
+            logging.info(
+                "Webhook started at %s%s (listen %s:%d)",
+                WEBHOOK_BASE_URL.rstrip("/"),
+                webhook_path,
+                WEBHOOK_HOST,
+                WEBHOOK_PORT,
+            )
+            await asyncio.Event().wait()
+        else:
+            await bot.delete_webhook(drop_pending_updates=True)
+            logging.info("Bot starting in polling mode ...")
+            await dp.start_polling(bot)
+    finally:
+        if effective_mode == "webhook":
+            try:
+                await bot.delete_webhook(drop_pending_updates=False)
+            except Exception:
+                pass
+            if runner is not None:
+                try:
+                    await runner.cleanup()
+                except Exception:
+                    pass
+        try:
+            await redis.aclose()
+        except Exception:
+            pass
+        await bot.session.close()
 
 
 if __name__ == "__main__":

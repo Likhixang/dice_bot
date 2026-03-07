@@ -16,6 +16,8 @@ services:
     container_name: dice_bot
     env_file:
       - .env
+    ports:
+      - "127.0.0.1:${WEBHOOK_PORT:-9999}:${WEBHOOK_PORT:-9999}"
     volumes:
       - .:/app
     depends_on:

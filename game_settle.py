@@ -164,7 +164,7 @@ async def process_round_end_or_settle(chat_id: int, game_id: str, game_data: dic
             tie_txt += "\n⚠️ <b>[已达20颗极限强制平分清算]</b>"
 
         final_text = [f"🎲 <b>终局结算单 (比{direction} · 押注{amount:g}/人)</b>{tie_txt}"]
-        extreme_compensations = []  # (uid, name, score) — 比大0点/比小9点补偿
+        extreme_compensations = []  # (uid, name, score, kind) — 极端点数奖惩
 
         if session_key:
             await redis.hset(session_key, "last_active", str(time.time()))
@@ -206,7 +206,9 @@ async def process_round_end_or_settle(chat_id: int, game_id: str, game_data: dic
                 p_tie_tag = f" <i>(共投{len(p_rolls)}颗)</i>" if extra_rounds > 0 else ""
                 final_text.append(f"第{i+1}名: {get_mention(p, names[p])}{p_tie_tag} | {p_rolls}={detail} ➡ <b>{score}点</b> | 盈亏: <b>{sign}{win_lose_profit:.2f}</b>")
                 if (direction == "大" and score == 0) or (direction == "小" and score == 9):
-                    extreme_compensations.append((p, names[p], score))
+                    extreme_compensations.append((p, names[p], score, "unlucky"))
+                elif (direction == "大" and score == 9) or (direction == "小" and score == 0):
+                    extreme_compensations.append((p, names[p], score, "lucky"))
 
         await bot.send_message(chat_id, "\n".join(final_text), message_thread_id=ALLOWED_THREAD_ID or None)
 
@@ -250,15 +252,22 @@ async def process_round_end_or_settle(chat_id: int, game_id: str, game_data: dic
             notif_msg = await bot.send_message(chat_id, "\n".join(lines), message_thread_id=ALLOWED_THREAD_ID or None)
             asyncio.create_task(delete_msgs([notif_msg], 30))
 
-        # ── 比大0点/比小9点极端补偿 ──
+        # ── 极端点数奖惩：比大0点/比小9点补偿 + 比大9点/比小0点回馈 ──
         if extreme_compensations:
             comp_lines = []
-            for p, name, sc in extreme_compensations:
-                await update_balance(p, 200)
-                if sc == 0:
-                    comp_lines.append(f"🫡 {get_mention(p, name)} 比大出 <b>0点</b>，太惨了！系统补偿 <b>+200</b> 积分")
-                else:
-                    comp_lines.append(f"🫡 {get_mention(p, name)} 比小出 <b>9点</b>，太倒霉了！系统补偿 <b>+200</b> 积分")
+            for p, name, sc, kind in extreme_compensations:
+                if kind == "unlucky":
+                    await update_balance(p, 200)
+                    if sc == 0:
+                        comp_lines.append(f"🫡 {get_mention(p, name)} 比大出 <b>0点</b>，太惨了！系统补偿 <b>+200</b> 积分")
+                    else:
+                        comp_lines.append(f"🫡 {get_mention(p, name)} 比小出 <b>9点</b>，太倒霉了！系统补偿 <b>+200</b> 积分")
+                else:  # lucky
+                    await update_balance(p, -200)
+                    if sc == 9:
+                        comp_lines.append(f"🍀 {get_mention(p, name)} 比大出 <b>9点</b>，太幸运了！回馈社会 <b>-200</b> 积分")
+                    else:
+                        comp_lines.append(f"🍀 {get_mention(p, name)} 比小出 <b>0点</b>，太幸运了！回馈社会 <b>-200</b> 积分")
             comp_msg = await bot.send_message(chat_id, "\n".join(comp_lines), message_thread_id=ALLOWED_THREAD_ID or None)
             asyncio.create_task(delete_msgs([comp_msg], 30))
 
