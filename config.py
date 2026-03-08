@@ -33,7 +33,7 @@ WEBHOOK_SECRET_TOKEN = os.getenv("WEBHOOK_SECRET_TOKEN", "").strip()
 
 # 每次停机修复后更新此处，停机补偿公告会自动带上本次修复说明
 LAST_FIX_DESC = (
-    "• 新增：比大出9点/比小出0点「太幸运，回馈社会」-200 积分"
+    "• 调整：幸运/不幸运奖惩改为当局下注50%四舍五入取整；连胜/连败奖惩改为三局平均下注50%四舍五入取整"
 )
 
 TZ_BJ = datetime.timezone(datetime.timedelta(hours=8))

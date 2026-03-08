@@ -75,6 +75,11 @@ def calculate_score_with_details(dice_list):
     return total % 10, detail_str
 
 
+def calc_half_int(value: float) -> int:
+    """按 50% 计算并四舍五入取整（0.5 进位）。"""
+    return int(value * 0.5 + 0.5)
+
+
 async def process_round_end_or_settle(chat_id: int, game_id: str, game_data: dict):
     game_key = f"game:{game_id}"
     players = json.loads(game_data["players"])
@@ -164,7 +169,8 @@ async def process_round_end_or_settle(chat_id: int, game_id: str, game_data: dic
             tie_txt += "\n⚠️ <b>[已达20颗极限强制平分清算]</b>"
 
         final_text = [f"🎲 <b>终局结算单 (比{direction} · 押注{amount:g}/人)</b>{tie_txt}"]
-        extreme_compensations = []  # (uid, name, score, kind) — 极端点数奖惩
+        extreme_compensations = []  # (uid, name, score, kind, bonus_abs) — 极端点数奖惩
+        extreme_bonus_abs = calc_half_int(abs(amount))
 
         if session_key:
             await redis.hset(session_key, "last_active", str(time.time()))
@@ -206,9 +212,9 @@ async def process_round_end_or_settle(chat_id: int, game_id: str, game_data: dic
                 p_tie_tag = f" <i>(共投{len(p_rolls)}颗)</i>" if extra_rounds > 0 else ""
                 final_text.append(f"第{i+1}名: {get_mention(p, names[p])}{p_tie_tag} | {p_rolls}={detail} ➡ <b>{score}点</b> | 盈亏: <b>{sign}{win_lose_profit:.2f}</b>")
                 if (direction == "大" and score == 0) or (direction == "小" and score == 9):
-                    extreme_compensations.append((p, names[p], score, "unlucky"))
+                    extreme_compensations.append((p, names[p], score, "unlucky", extreme_bonus_abs))
                 elif (direction == "大" and score == 9) or (direction == "小" and score == 0):
-                    extreme_compensations.append((p, names[p], score, "lucky"))
+                    extreme_compensations.append((p, names[p], score, "lucky", extreme_bonus_abs))
 
         await bot.send_message(chat_id, "\n".join(final_text), message_thread_id=ALLOWED_THREAD_ID or None)
 
@@ -217,28 +223,47 @@ async def process_round_end_or_settle(chat_id: int, game_id: str, game_data: dic
         for p in sorted_players:
             win_lose_profit = player_profit_cents[p] / 100.0
             streak_key = f"game_streak:{p}"
+            streak_bets_key = f"game_streak_bets:{p}"
             current = int(await redis.get(streak_key) or 0)
+            current_bets_raw = await redis.get(streak_bets_key)
+            try:
+                current_bets = json.loads(current_bets_raw) if current_bets_raw else []
+            except Exception:
+                current_bets = []
 
             if win_lose_profit > 0:
                 new_streak = current + 1 if current > 0 else 1
+                current_bets = (current_bets + [amount]) if current > 0 else [amount]
             elif win_lose_profit < 0:
                 new_streak = current - 1 if current < 0 else -1
+                current_bets = (current_bets + [amount]) if current < 0 else [amount]
             else:
                 new_streak = 0  # 平局/无盈亏重置
+                current_bets = []
 
             if new_streak >= 3:
-                await update_balance(p, -200)
-                streak_notifs.append((p, names[p], "乐善好施", -200, new_streak))
+                avg_bet = (sum(current_bets[-3:]) / 3.0) if len(current_bets) >= 3 else amount
+                bonus_abs = calc_half_int(abs(avg_bet))
+                if bonus_abs:
+                    await update_balance(p, -bonus_abs)
+                streak_notifs.append((p, names[p], "乐善好施", -bonus_abs, new_streak))
                 new_streak = 0
+                current_bets = []
             elif new_streak <= -3:
-                await update_balance(p, 200)
-                streak_notifs.append((p, names[p], "同舟共济", +200, new_streak))
+                avg_bet = (sum(current_bets[-3:]) / 3.0) if len(current_bets) >= 3 else amount
+                bonus_abs = calc_half_int(abs(avg_bet))
+                if bonus_abs:
+                    await update_balance(p, bonus_abs)
+                streak_notifs.append((p, names[p], "同舟共济", bonus_abs, new_streak))
                 new_streak = 0
+                current_bets = []
 
             if new_streak == 0:
                 await redis.delete(streak_key)
+                await redis.delete(streak_bets_key)
             else:
                 await redis.setex(streak_key, 86400 * 7, str(new_streak))
+                await redis.setex(streak_bets_key, 86400 * 7, json.dumps(current_bets))
 
         if streak_notifs:
             lines = []
@@ -255,19 +280,21 @@ async def process_round_end_or_settle(chat_id: int, game_id: str, game_data: dic
         # ── 极端点数奖惩：比大0点/比小9点补偿 + 比大9点/比小0点回馈 ──
         if extreme_compensations:
             comp_lines = []
-            for p, name, sc, kind in extreme_compensations:
+            for p, name, sc, kind, bonus_abs in extreme_compensations:
                 if kind == "unlucky":
-                    await update_balance(p, 200)
+                    if bonus_abs:
+                        await update_balance(p, bonus_abs)
                     if sc == 0:
-                        comp_lines.append(f"🫡 {get_mention(p, name)} 比大出 <b>0点</b>，太惨了！系统补偿 <b>+200</b> 积分")
+                        comp_lines.append(f"🫡 {get_mention(p, name)} 比大出 <b>0点</b>，太惨了！系统补偿 <b>+{bonus_abs}</b> 积分")
                     else:
-                        comp_lines.append(f"🫡 {get_mention(p, name)} 比小出 <b>9点</b>，太倒霉了！系统补偿 <b>+200</b> 积分")
+                        comp_lines.append(f"🫡 {get_mention(p, name)} 比小出 <b>9点</b>，太倒霉了！系统补偿 <b>+{bonus_abs}</b> 积分")
                 else:  # lucky
-                    await update_balance(p, -200)
+                    if bonus_abs:
+                        await update_balance(p, -bonus_abs)
                     if sc == 9:
-                        comp_lines.append(f"🍀 {get_mention(p, name)} 比大出 <b>9点</b>，太幸运了！回馈社会 <b>-200</b> 积分")
+                        comp_lines.append(f"🍀 {get_mention(p, name)} 比大出 <b>9点</b>，太幸运了！回馈社会 <b>-{bonus_abs}</b> 积分")
                     else:
-                        comp_lines.append(f"🍀 {get_mention(p, name)} 比小出 <b>0点</b>，太幸运了！回馈社会 <b>-200</b> 积分")
+                        comp_lines.append(f"🍀 {get_mention(p, name)} 比小出 <b>0点</b>，太幸运了！回馈社会 <b>-{bonus_abs}</b> 积分")
             comp_msg = await bot.send_message(chat_id, "\n".join(comp_lines), message_thread_id=ALLOWED_THREAD_ID or None)
             asyncio.create_task(delete_msgs([comp_msg], 30))
 
