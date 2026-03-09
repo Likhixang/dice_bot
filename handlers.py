@@ -161,7 +161,7 @@ async def get_leaderboard_text(period: str, board: str, title: str) -> str:
             win_rate = wins / total * 100
             rate_rows.append((uid, win_rate, int(wins), int(losses), total))
         rate_rows.sort(key=lambda x: (-x[1], -x[4], -x[2], x[0]))
-        lines.append("\n📊 <b>胜率榜 TOP 5</b>")
+        lines.append("\n📈 <b>胜率 TOP 5</b>")
         if rate_rows:
             for i, (uid, win_rate, wins, losses, total) in enumerate(rate_rows[:5]):
                 name = await redis.hget("user_names", uid) or "未知玩家"
@@ -932,10 +932,7 @@ async def handle_rank_switch_cb(callback: types.CallbackQuery):
 async def handle_force_start(callback: types.CallbackQuery):
     parts = callback.data.split(":")
     game_id = parts[1]
-    initiator_uid = parts[2]
-
-    if str(callback.from_user.id) != initiator_uid:
-        return await callback.answer("⚠️ 只有发起人可以强行发车！", show_alert=True)
+    callback_owner_uid = parts[2] if len(parts) > 2 else ""
 
     game_key = f"game:{game_id}"
     async with get_lock(game_id):
@@ -944,6 +941,10 @@ async def handle_force_start(callback: types.CallbackQuery):
             return await callback.answer("⚠️ 对局已开启、结束或不存在。", show_alert=True)
 
         players = json.loads(game_data["players"])
+        banker_uid = players[0] if players else ""
+        if str(callback.from_user.id) not in {banker_uid, callback_owner_uid}:
+            return await callback.answer("⚠️ 只有庄家可以强行发车！", show_alert=True)
+
         if len(players) < 2:
             return await callback.answer("⚠️ 至少需要 2 人才能发车！", show_alert=True)
         await redis.hset(game_key, "status", "starting")
@@ -1040,11 +1041,12 @@ async def handle_join(callback: types.CallbackQuery):
         _dc = game_data.get("dice_count", "1")
 
         if game_mode == "multi_exact":
-            keys.append([types.InlineKeyboardButton(text="🚀 发起人强行发车", callback_data=f"fs:{game_id}:{players[0]}")])
+            keys.append([types.InlineKeyboardButton(text="🚀 庄家强行发车", callback_data=f"fs:{game_id}:{players[0]}")])
             txt = (f"🎲 <b>定员组局 ({len(players)}/{target_players})</b>\n"
                    f"押注：<b>{_amt:g}</b> | 骰子：<b>{_dc}</b>颗 | 比<b>{_dir}</b>\n"
                    f"当前：{player_list_str}\n死等满员👇")
         else:
+            keys.append([types.InlineKeyboardButton(text="🚀 庄家强行发车", callback_data=f"fs:{game_id}:{players[0]}")])
             await redis.hset(game_key, "join_deadline", str(time.time() + 15))
             txt = (f"🎲 <b>多人发车 ({len(players)}/5)</b>\n"
                    f"押注：<b>{_amt:g}</b> | 骰子：<b>{_dc}</b>颗 | 比<b>{_dir}</b>\n"

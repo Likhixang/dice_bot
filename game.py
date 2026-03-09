@@ -311,15 +311,16 @@ async def start_game_creation(chat_id: int, uid: str, name: str, pending_data: d
                f"当前：{mention}\n死等满员👇")
         kb = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="⚔️ 接单", callback_data=f"jg:{game_id}")],
-            [types.InlineKeyboardButton(text="🚀 发起人强行发车", callback_data=f"fs:{game_id}:{uid}")]
+            [types.InlineKeyboardButton(text="🚀 庄家强行发车", callback_data=f"fs:{game_id}:{uid}")]
         ])
     else:  # multi_dynamic
         txt = (f"🎲 <b>多人发车 (1/5)</b>\n"
                f"押注：<b>{amount:g}</b> | 骰子：<b>{dice_count}</b>颗 | 比<b>{direction}</b>\n"
                f"当前：{mention}\n有人进就开始15秒倒计时👇")
-        kb = types.InlineKeyboardMarkup(inline_keyboard=[[
-            types.InlineKeyboardButton(text="⚔️ 接单", callback_data=f"jg:{game_id}")
-        ]])
+        kb = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="⚔️ 接单", callback_data=f"jg:{game_id}")],
+            [types.InlineKeyboardButton(text="🚀 庄家强行发车", callback_data=f"fs:{game_id}:{uid}")],
+        ])
 
     init_msg = await bot.send_message(chat_id, txt, reply_markup=kb, message_thread_id=ALLOWED_THREAD_ID or None)
     await redis.hset(game_key, "init_msg_id", str(init_msg.message_id))
