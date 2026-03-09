@@ -11,6 +11,7 @@ import time
 import uuid
 
 from aiogram import Router, F, types, BaseMiddleware
+from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
 from aiogram.filters import Command
 from typing import Callable, Dict, Any, Awaitable
 
@@ -92,10 +93,32 @@ class MaintenanceMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
+class TelegramResilienceMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler: Callable[[Any, Dict[str, Any]], Awaitable[Any]],
+        event: Any,
+        data: Dict[str, Any]
+    ) -> Any:
+        try:
+            return await handler(event, data)
+        except TelegramNetworkError as e:
+            logging.warning("[tg_resilience] Network timeout: %s", e)
+            return
+        except TelegramBadRequest as e:
+            msg = str(e).lower()
+            if "query is too old" in msg or "query id is invalid" in msg or "message is not modified" in msg:
+                logging.info("[tg_resilience] Ignore bad request: %s", e)
+                return
+            raise
+
+
 router.message.middleware(TopicRestrictionMiddleware())
 router.callback_query.middleware(TopicRestrictionMiddleware())
 router.message.middleware(MaintenanceMiddleware())
 router.callback_query.middleware(MaintenanceMiddleware())
+router.message.middleware(TelegramResilienceMiddleware())
+router.callback_query.middleware(TelegramResilienceMiddleware())
 
 
 # ==============================

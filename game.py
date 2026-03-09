@@ -7,7 +7,7 @@ from aiogram import types
 
 from config import game_locks, ALLOWED_THREAD_ID
 from core import bot, redis
-from utils import get_mention, delete_msg_by_id, delete_msgs, delete_msgs_by_ids
+from utils import get_mention, delete_msg_by_id, delete_msgs, delete_msgs_by_ids, safe_tg_call
 from balance import update_balance, release_user_locks, get_or_init_balance
 from redpack import suspend_dice_redpacks, resume_dice_redpacks
 from game_settle import get_roll_keyboard, process_dice_value
@@ -198,8 +198,16 @@ async def rolling_timeout_watcher(chat_id: int, game_id: str):
                         escaped_list.append(uid)
                         await redis.hset(game_key, "escaped_players", json.dumps(escaped_list))
 
-                    msg = await bot.send_message(chat_id, f"⏰ {get_mention(uid, names[uid])} 投掷严重超时（比{_dir}｜{_amt:g}/人），已标记为逃跑并垫底！", message_thread_id=ALLOWED_THREAD_ID or None)
-                    asyncio.create_task(delete_msgs([msg], 10))
+                    msg = await safe_tg_call(
+                        lambda: bot.send_message(
+                            chat_id,
+                            f"⏰ {get_mention(uid, names[uid])} 投掷严重超时（比{_dir}｜{_amt:g}/人），已标记为逃跑并垫底！",
+                            message_thread_id=ALLOWED_THREAD_ID or None,
+                        ),
+                        op="rolling_timeout_mark_escape",
+                    )
+                    if msg:
+                        asyncio.create_task(delete_msgs([msg], 10))
 
                     for _ in range(rem):
                         fresh = await redis.hgetall(game_key)
@@ -212,14 +220,18 @@ async def rolling_timeout_watcher(chat_id: int, game_id: str):
                     warned = game_data.get(f"warned_{uid}", "0")
                     if warned == "0":
                         await redis.hset(game_key, f"warned_{uid}", "1")
-                        msg = await bot.send_message(
-                            chat_id,
-                            f"⚠️ <b>催投警告 · 比{_dir} · {_amt:g}/人</b>\n{get_mention(uid, names[uid])} 还有 <b>30 秒</b>！请尽快投出剩余 <b>{rem}</b> 颗骰子，超时将被判负扣分！",
-                            reply_markup=get_roll_keyboard(game_id, uid),
-                            message_thread_id=ALLOWED_THREAD_ID or None
+                        msg = await safe_tg_call(
+                            lambda: bot.send_message(
+                                chat_id,
+                                f"⚠️ <b>催投警告 · 比{_dir} · {_amt:g}/人</b>\n{get_mention(uid, names[uid])} 还有 <b>30 秒</b>！请尽快投出剩余 <b>{rem}</b> 颗骰子，超时将被判负扣分！",
+                                reply_markup=get_roll_keyboard(game_id, uid),
+                                message_thread_id=ALLOWED_THREAD_ID or None,
+                            ),
+                            op="rolling_timeout_warn",
                         )
-                        asyncio.create_task(delete_msgs([msg], 30))
-                        await redis.rpush(f"game_msgs:{game_id}", msg.message_id)
+                        if msg:
+                            asyncio.create_task(delete_msgs([msg], 30))
+                            await redis.rpush(f"game_msgs:{game_id}", msg.message_id)
     game_locks.pop(game_id, None)
 
 
