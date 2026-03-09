@@ -76,8 +76,8 @@ def calculate_score_with_details(dice_list):
 
 
 def calc_half_int(value: float) -> int:
-    """按 50% 计算并四舍五入取整（0.5 进位）。"""
-    return int(value * 0.5 + 0.5)
+    """按 20% 计算并四舍五入取整（0.5 进位）。"""
+    return int(value * 0.2 + 0.5)
 
 
 async def process_round_end_or_settle(chat_id: int, game_id: str, game_data: dict):

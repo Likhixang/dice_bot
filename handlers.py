@@ -146,6 +146,42 @@ async def get_leaderboard_text(period: str, board: str, title: str) -> str:
         else:
             lines.append("暂无亏损数据。")
 
+        # 胜率榜仅在胜负榜展示；净胜负榜不展示。
+        wins_all = await safe_zrange(f"rank_wins:{period}:{period_key}", 0, -1, withscores=True)
+        losses_all = await safe_zrange(f"rank_losses:{period}:{period_key}", 0, -1, withscores=True)
+        wins_map = {uid: float(score) for uid, score in wins_all}
+        losses_map = {uid: float(score) for uid, score in losses_all}
+        rate_rows = []
+        for uid in (set(wins_map.keys()) | set(losses_map.keys())):
+            wins = wins_map.get(uid, 0.0)
+            losses = losses_map.get(uid, 0.0)
+            total = int(wins + losses)
+            if total <= 0:
+                continue
+            win_rate = wins / total * 100
+            rate_rows.append((uid, win_rate, int(wins), int(losses), total))
+        rate_rows.sort(key=lambda x: (-x[1], -x[4], -x[2], x[0]))
+        lines.append("\n📊 <b>胜率榜 TOP 5</b>")
+        if rate_rows:
+            for i, (uid, win_rate, wins, losses, total) in enumerate(rate_rows[:5]):
+                name = await redis.hget("user_names", uid) or "未知玩家"
+                lines.append(
+                    f"{i+1}. {get_mention(uid, name)} | {win_rate:.1f}%（{wins}胜 {losses}负 / {total}局）"
+                )
+        else:
+            lines.append("暂无胜率数据。")
+
+        low_rate_rows = sorted(rate_rows, key=lambda x: (x[1], -x[4], -x[3], x[0]))
+        lines.append("\n📉 <b>胜率 LAST 5</b>")
+        if low_rate_rows:
+            for i, (uid, win_rate, wins, losses, total) in enumerate(low_rate_rows[:5]):
+                name = await redis.hget("user_names", uid) or "未知玩家"
+                lines.append(
+                    f"{i+1}. {get_mention(uid, name)} | {win_rate:.1f}%（{wins}胜 {losses}负 / {total}局）"
+                )
+        else:
+            lines.append("暂无胜率数据。")
+
     return "\n".join(lines)
 
 
@@ -196,8 +232,8 @@ async def cmd_help(message: types.Message):
 
 🏷 <b>三、连胜 / 连败奖惩</b>
 
-• <b>乐善好施</b>：连赢 3 局（有积分加）→ 按最近3局平均下注的50%四舍五入取整自动扣分，重置后循环计算
-• <b>同舟共济</b>：连败 3 局（有积分扣）→ 按最近3局平均下注的50%四舍五入取整自动补贴，重置后循环计算
+• <b>乐善好施</b>：连赢 3 局（有积分加）→ 按最近3局平均下注的20%四舍五入取整自动扣分，重置后循环计算
+• <b>同舟共济</b>：连败 3 局（有积分扣）→ 按最近3局平均下注的20%四舍五入取整自动补贴，重置后循环计算
 （平局 ±0 重置计数；与名次无关，以实际盈亏符号判定）
 
 🏷 <b>四、/dice_attack 单挑对决</b>
