@@ -21,7 +21,7 @@ from utils import (get_mention, safe_html, delete_msgs, delete_msg_by_id,
                    reply_and_auto_delete, safe_zrevrange, safe_zrange, delete_msgs_by_ids)
 from balance import get_or_init_balance, update_balance, get_period_keys
 from tasks import perform_backup, get_latest_backup_path, BACKUP_KEEP
-from game import start_game_creation, start_rolling_phase, rank_panel_watcher, refund_game
+from game import start_game_creation, start_rolling_phase, rank_panel_watcher, refund_game, get_valid_user_game
 from game_settle import process_dice_value
 from redpack import (build_redpack_panel, refresh_dice_panel, attempt_claim_pw_redpack,
                      redpack_expiry_watcher, generate_redpack_amounts)
@@ -749,7 +749,7 @@ async def handle_bet_command(message: types.Message):
         await redis.zincrby(f"rank_init:daily:{today_str}", 1, uid)
         await redis.expire(f"rank_init:daily:{today_str}", 86400 * 7)
 
-    if await redis.exists(f"user_game:{uid}"):
+    if await get_valid_user_game(uid):
         return await reply_and_auto_delete(message, "❌ <b>分身乏术</b>\n请结算后再开启新局。")
 
     try:
@@ -792,7 +792,7 @@ async def handle_bet_command(message: types.Message):
             return await reply_and_auto_delete(message, "❌ 禁止自娱自乐‼️")
         if target_uid == str(BOT_ID) or message.reply_to_message.from_user.is_bot:
             return await reply_and_auto_delete(message, "❌ 禁止与荷官谈笑风生👀")
-        if await redis.exists(f"user_game:{target_uid}"):
+        if await get_valid_user_game(target_uid):
             return await reply_and_auto_delete(message, "❌ <b>对方正在对局中</b>\n等对方结算后再发起挑战。")
 
     waiting_duels = []
@@ -1005,7 +1005,7 @@ async def handle_join(callback: types.CallbackQuery):
     game_key = f"game:{game_id}"
     uid = str(callback.from_user.id)
 
-    if await redis.exists(f"user_game:{uid}"):
+    if await get_valid_user_game(uid):
         return await callback.answer("已有进行中对局！", show_alert=True)
 
     async with get_lock(game_id):

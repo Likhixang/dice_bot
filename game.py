@@ -13,10 +13,48 @@ from redpack import suspend_dice_redpacks, resume_dice_redpacks
 from game_settle import get_roll_keyboard, process_dice_value
 
 
+async def _find_players_by_game_id(game_id: str) -> list:
+    players = []
+    cursor = 0
+    while True:
+        cursor, keys = await redis.scan(cursor, match="user_game:*", count=200)
+        for key in keys:
+            if await redis.get(key) == game_id:
+                players.append(key.split(":", 1)[1])
+        if cursor == 0:
+            break
+    return players
+
+
+async def get_valid_user_game(uid: str) -> str:
+    game_id = await redis.get(f"user_game:{uid}")
+    if not game_id:
+        return ""
+    game_data = await redis.hgetall(f"game:{game_id}")
+    if not game_data:
+        await redis.delete(f"user_game:{uid}")
+        return ""
+    players = json.loads(game_data.get("players", "[]"))
+    if uid not in players:
+        await redis.delete(f"user_game:{uid}")
+        return ""
+    return game_id
+
+
 async def refund_game(chat_id: int, game_id: str):
     game_key = f"game:{game_id}"
     game_data = await redis.hgetall(game_key)
     if not game_data:
+        # 兜底清理：game 已丢失时，回收残留 user_game 锁，避免玩家永久“在对局中”。
+        players = await _find_players_by_game_id(game_id)
+        await release_user_locks(players)
+        await redis.srem(f"chat_games:{chat_id}", game_id)
+        msg_ids = await redis.lrange(f"game_msgs:{game_id}", 0, -1)
+        if msg_ids:
+            asyncio.create_task(delete_msgs_by_ids(chat_id, msg_ids))
+        await redis.delete(f"game_msgs:{game_id}")
+        game_locks.pop(game_id, None)
+        await resume_dice_redpacks(chat_id)
         return
 
     players = json.loads(game_data.get("players", "[]"))
