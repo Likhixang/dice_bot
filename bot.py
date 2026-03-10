@@ -57,7 +57,8 @@ async def _compensation_cleanup(chat_id: int, msg_id: int, delay: float, redis_k
 @blackhole_router.message(Command("dice_maintain"))
 async def handle_maintain_cmd(message):
     if message.from_user.id != SUPER_ADMIN_ID:
-        return
+        bot_msg = await message.reply("❌ 越权拦截")
+        return asyncio.create_task(delete_msgs([message, bot_msg], 10))
     asyncio.create_task(delete_msgs([message], 0))
     # 1. 全群退款对局
     active_groups = await redis.smembers("active_groups")
@@ -181,7 +182,8 @@ async def handle_maintain_cmd(message):
 @blackhole_router.message(Command("dice_compensate"))
 async def handle_compensate_cmd(message):
     if message.from_user.id != SUPER_ADMIN_ID:
-        return
+        bot_msg = await message.reply("❌ 越权拦截")
+        return asyncio.create_task(delete_msgs([message, bot_msg], 10))
     # 取 /dice_compensate 后面的自定义说明
     extra_desc = (message.text or "").split(None, 1)[1].strip() if (message.text or "").strip().count(" ") >= 1 else ""
     uids = await redis.hkeys("user_names")
@@ -369,28 +371,28 @@ async def main():
 
     from aiogram import types as tg_types
     base_commands = [
-        tg_types.BotCommand(command="dice_help", description="查看全量规则与指令指南"),
-        tg_types.BotCommand(command="dice_event", description="查看最近系统彩蛋与补偿记录"),
-        tg_types.BotCommand(command="dice_bal", description="查询余额"),
         tg_types.BotCommand(command="dice_checkin", description="每日签到"),
-        tg_types.BotCommand(command="dice_gift", description="回复赠送积分"),
+        tg_types.BotCommand(command="dice_bal", description="查询余额"),
         tg_types.BotCommand(command="dice_redpack", description="发拼手气红包"),
         tg_types.BotCommand(command="dice_redpack_pw", description="发口令红包"),
+        tg_types.BotCommand(command="dice_attack", description="向某人发起 Attack 对决（回复消息使用）"),
+        tg_types.BotCommand(command="dice_gift", description="回复赠送积分"),
         tg_types.BotCommand(command="dice_rank", description="今日胜负榜"),
         tg_types.BotCommand(command="dice_rank_week", description="本周胜负榜"),
         tg_types.BotCommand(command="dice_rank_month", description="本月胜负榜"),
-        tg_types.BotCommand(command="dice_attack", description="向某人发起 Attack 对决（回复消息使用）")
+        tg_types.BotCommand(command="dice_help", description="查看帮助"),
+        tg_types.BotCommand(command="dice_event", description="查看最近系统彩蛋与补偿记录"),
     ]
 
     admin_commands = base_commands + [
-        tg_types.BotCommand(command="dice_let", description="[仅限超管] 回复覆写积分"),
+        tg_types.BotCommand(command="dice_forced_stop", description="[仅限管理] 强杀异常对局"),
         tg_types.BotCommand(command="dice_give", description="[仅限超管] 回复加积分"),
         tg_types.BotCommand(command="dice_take", description="[仅限超管] 回复扣积分"),
+        tg_types.BotCommand(command="dice_let", description="[仅限超管] 回复覆写积分"),
+        tg_types.BotCommand(command="dice_backup_db", description="[仅限超管] 备份数据库"),
+        tg_types.BotCommand(command="dice_restore_db", description="[仅限超管] 恢复数据库"),
         tg_types.BotCommand(command="dice_maintain", description="[仅限超管] 停机维护"),
         tg_types.BotCommand(command="dice_compensate", description="[仅限超管] 停机补偿"),
-        tg_types.BotCommand(command="dice_forced_stop", description="[仅限管理] 强杀异常对局"),
-        tg_types.BotCommand(command="dice_backup_db", description="[仅限超管] 备份数据"),
-        tg_types.BotCommand(command="dice_restore_db", description="[仅限超管] 恢复数据")
     ]
 
     try:
