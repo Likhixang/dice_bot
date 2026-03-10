@@ -28,6 +28,28 @@ from redpack import (build_redpack_panel, refresh_dice_panel, attempt_claim_pw_r
 
 router = Router()
 
+KNOWN_DICE_COMMANDS = {
+    "dice_help",
+    "dice_event",
+    "dice_backup_db",
+    "dice_restore_db",
+    "dice_checkin",
+    "dice_redpack",
+    "dice_redpack_pw",
+    "dice_rank",
+    "dice_rank_week",
+    "dice_rank_month",
+    "dice_bal",
+    "dice_gift",
+    "dice_forced_stop",
+    "dice_let",
+    "dice_give",
+    "dice_take",
+    "dice_attack",
+    "dice_maintain",
+    "dice_compensate",
+}
+
 
 # ==============================
 # 话题频道限制中间件
@@ -1485,3 +1507,12 @@ async def handle_attack_defender(callback: types.CallbackQuery):
     except Exception:
         pass
     await callback.answer(f"🛡 已反击投入 {ATTACK_BET}！你的总投入：{int(new_d)}")
+
+@router.message(CleanTextFilter(), F.text.regexp(r"^/dice_[A-Za-z0-9_@]+"))
+async def cmd_unknown_dice(message: types.Message):
+    token = ((message.text or "").strip().split() or [""])[0]
+    cmd = token.lstrip("/").split("@", 1)[0]
+    if cmd in KNOWN_DICE_COMMANDS:
+        return
+    await reply_and_auto_delete(message, "❌ 未知命令，发送 /dice_help 查看可用命令。")
+
