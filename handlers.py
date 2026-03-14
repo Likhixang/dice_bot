@@ -1508,11 +1508,14 @@ async def handle_attack_defender(callback: types.CallbackQuery):
         pass
     await callback.answer(f"🛡 已反击投入 {ATTACK_BET}！你的总投入：{int(new_d)}")
 
-@router.message(CleanTextFilter(), F.text.regexp(r"^/dice_[A-Za-z0-9_@]+"))
+@router.message(
+    CleanTextFilter(),
+    # 这两个命令在 blackhole_router 中处理，必须放行到后续 router。
+    F.text.regexp(r"^/(?!dice_(?:maintain|compensate)\b)dice_[A-Za-z0-9_@]+"),
+)
 async def cmd_unknown_dice(message: types.Message):
     token = ((message.text or "").strip().split() or [""])[0]
     cmd = token.lstrip("/").split("@", 1)[0]
     if cmd in KNOWN_DICE_COMMANDS:
         return
     await reply_and_auto_delete(message, "❌ 未知命令，发送 /dice_help 查看可用命令。")
-
