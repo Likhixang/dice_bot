@@ -1,0 +1,51 @@
+import os
+import re
+import asyncio
+import datetime
+
+TOKEN = os.getenv("BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("🚫 致命阻断：环境变量中未找到 BOT_TOKEN，请检查 .env 文件及 docker-compose 映射！")
+
+BOT_ID = int(os.getenv("BOT_ID", "0"))
+if not BOT_ID:
+    raise ValueError("🚫 致命阻断：环境变量中未找到 BOT_ID，请检查 .env 文件！")
+
+SUPER_ADMIN_ID = int(os.getenv("SUPER_ADMIN_ID", "0"))
+if not SUPER_ADMIN_ID:
+    raise ValueError("🚫 致命阻断：环境变量中未找到 SUPER_ADMIN_ID，请检查 .env 文件！")
+
+ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
+if not ADMIN_IDS:
+    raise ValueError("🚫 致命阻断：环境变量中未找到 ADMIN_IDS，请检查 .env 文件！")
+
+# 话题频道限制（0 表示不限制）
+ALLOWED_CHAT_ID = int(os.getenv("ALLOWED_CHAT_ID", "0"))
+ALLOWED_THREAD_ID = int(os.getenv("ALLOWED_THREAD_ID", "0"))
+
+# 运行模式：polling / webhook
+RUN_MODE = os.getenv("RUN_MODE", "webhook").strip().lower()
+WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "https://dc.khixang.dpdns.org").strip()
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/telegram/webhook").strip() or "/telegram/webhook"
+WEBHOOK_HOST = os.getenv("WEBHOOK_HOST", "0.0.0.0").strip() or "0.0.0.0"
+WEBHOOK_PORT = int(os.getenv("WEBHOOK_PORT", "9999"))
+WEBHOOK_SECRET_TOKEN = os.getenv("WEBHOOK_SECRET_TOKEN", "").strip()
+
+# 每次停机修复后更新此处，停机补偿公告会自动带上本次修复说明
+LAST_FIX_DESC = (
+    "• 修复：异常局强杀后残留 user_game 锁导致“始终在对局中”的问题，现已自动回收僵尸锁\n"
+    "• 调整：极端点数奖惩增加盈亏保护（本局已输不再额外扣、本局已赢不再额外奖），连胜/连败逻辑保持不变\n"
+    "• 调整：连胜/连败与极端点数奖惩公告改为常驻消息，不再自动删除"
+)
+
+TZ_BJ = datetime.timezone(datetime.timedelta(hours=8))
+
+PATTERN = re.compile(r"^(大|小)\s*([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?:\s+([+-]?\d+))?\s*(多)?\s*([+-]?\d+)?$")
+
+# 并发互斥锁（dict 是可变对象，所有模块 from config import game_locks 后共享同一引用）
+game_locks: dict = {}
+
+def get_lock(game_id: str):
+    if game_id not in game_locks:
+        game_locks[game_id] = asyncio.Lock()
+    return game_locks[game_id]

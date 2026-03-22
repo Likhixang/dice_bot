@@ -1,0 +1,30 @@
+services:
+  redis:
+    image: redis:alpine
+    container_name: dice_redis
+    command: redis-server --appendonly yes --maxmemory 64mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:-dice_redis_pass}
+    restart: always
+    volumes:
+      - ./redis_data:/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+  bot:
+    build: .
+    container_name: dice_bot
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:${WEBHOOK_PORT:-9999}:${WEBHOOK_PORT:-9999}"
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
