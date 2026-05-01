@@ -194,35 +194,40 @@ async def get_leaderboard_text(period: str, board: str, title: str) -> str:
         # 胜率榜仅在胜负榜展示；净胜负榜不展示。
         wins_all = await safe_zrange(f"rank_wins:{period}:{period_key}", 0, -1, withscores=True)
         losses_all = await safe_zrange(f"rank_losses:{period}:{period_key}", 0, -1, withscores=True)
+        draws_all = await safe_zrange(f"rank_draws:{period}:{period_key}", 0, -1, withscores=True)
         wins_map = {uid: float(score) for uid, score in wins_all}
         losses_map = {uid: float(score) for uid, score in losses_all}
+        draws_map = {uid: float(score) for uid, score in draws_all}
         rate_rows = []
-        for uid in (set(wins_map.keys()) | set(losses_map.keys())):
+        for uid in (set(wins_map.keys()) | set(losses_map.keys()) | set(draws_map.keys())):
             wins = wins_map.get(uid, 0.0)
             losses = losses_map.get(uid, 0.0)
-            total = int(wins + losses)
+            draws = draws_map.get(uid, 0.0)
+            total = int(wins + losses + draws)
             if total <= 0:
                 continue
             win_rate = wins / total * 100
-            rate_rows.append((uid, win_rate, int(wins), int(losses), total))
-        rate_rows.sort(key=lambda x: (-x[1], -x[4], -x[2], x[0]))
+            rate_rows.append((uid, win_rate, int(wins), int(losses), int(draws), total))
+        rate_rows.sort(key=lambda x: (-x[1], -x[5], -x[2], x[0]))
         lines.append("\n📈 <b>胜率 TOP 5</b>")
         if rate_rows:
-            for i, (uid, win_rate, wins, losses, total) in enumerate(rate_rows[:5]):
+            for i, (uid, win_rate, wins, losses, draws, total) in enumerate(rate_rows[:5]):
                 name = await redis.hget("user_names", uid) or "未知玩家"
+                draw_str = f" {draws}平" if draws > 0 else ""
                 lines.append(
-                    f"{i+1}. {get_mention(uid, name)} | {win_rate:.1f}%（{wins}胜 {losses}负 / {total}局）"
+                    f"{i+1}. {get_mention(uid, name)} | {win_rate:.1f}%（{wins}胜 {losses}负{draw_str} / {total}局）"
                 )
         else:
             lines.append("暂无胜率数据。")
 
-        low_rate_rows = sorted(rate_rows, key=lambda x: (x[1], -x[4], -x[3], x[0]))
+        low_rate_rows = sorted(rate_rows, key=lambda x: (x[1], -x[5], -x[3], x[0]))
         lines.append("\n📉 <b>胜率 LAST 5</b>")
         if low_rate_rows:
-            for i, (uid, win_rate, wins, losses, total) in enumerate(low_rate_rows[:5]):
+            for i, (uid, win_rate, wins, losses, draws, total) in enumerate(low_rate_rows[:5]):
                 name = await redis.hget("user_names", uid) or "未知玩家"
+                draw_str = f" {draws}平" if draws > 0 else ""
                 lines.append(
-                    f"{i+1}. {get_mention(uid, name)} | {win_rate:.1f}%（{wins}胜 {losses}负 / {total}局）"
+                    f"{i+1}. {get_mention(uid, name)} | {win_rate:.1f}%（{wins}胜 {losses}负{draw_str} / {total}局）"
                 )
         else:
             lines.append("暂无胜率数据。")
@@ -586,10 +591,12 @@ async def check_balance(message: types.Message):
     _, _, monthly_k = get_period_keys()
     wins = float(await redis.zscore(f"rank_wins:monthly:{monthly_k}", uid) or 0)
     losses = float(await redis.zscore(f"rank_losses:monthly:{monthly_k}", uid) or 0)
-    total_games = int(wins + losses)
+    draws = float(await redis.zscore(f"rank_draws:monthly:{monthly_k}", uid) or 0)
+    total_games = int(wins + losses + draws)
     if total_games > 0:
         win_rate = wins / total_games * 100
-        rate_line = f"\n📊 本月胜率：<b>{win_rate:.1f}%</b>（{int(wins)}胜 {int(losses)}负 / 共{total_games}局）"
+        draw_str = f" {int(draws)}平" if draws > 0 else ""
+        rate_line = f"\n📊 本月胜率：<b>{win_rate:.1f}%</b>（{int(wins)}胜 {int(losses)}负{draw_str} / 共{total_games}局）"
     else:
         rate_line = "\n📊 本月胜率：暂无对局记录"
     bot_msg = await message.reply(f"💰 当前可用积分为：<b>{bal}</b>{rate_line}")

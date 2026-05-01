@@ -196,11 +196,14 @@ async def process_round_end_or_settle(chat_id: int, game_id: str, game_data: dic
                 elif win_lose_profit < 0:
                     await redis.zincrby(f"rank_gross_losses:{prefix}:{period}", abs(win_lose_profit), p)
                     await redis.zincrby(f"rank_losses:{prefix}:{period}", 1, p)
+                else:
+                    await redis.zincrby(f"rank_draws:{prefix}:{period}", 1, p)
                 await redis.expire(f"rank_points:{prefix}:{period}", 86400 * 60)
                 await redis.expire(f"rank_gross_wins:{prefix}:{period}", 86400 * 60)
                 await redis.expire(f"rank_gross_losses:{prefix}:{period}", 86400 * 60)
                 await redis.expire(f"rank_wins:{prefix}:{period}", 86400 * 60)
                 await redis.expire(f"rank_losses:{prefix}:{period}", 86400 * 60)
+                await redis.expire(f"rank_draws:{prefix}:{period}", 86400 * 60)
 
             sign = "+" if win_lose_profit > 0 else ""
             p_rolls = rolls.get(p, [])
