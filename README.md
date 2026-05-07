@@ -11,10 +11,12 @@ A full-featured Telegram dice arena group bot supporting multiple game modes, po
 ### Game System (4 modes)
 | Mode | How to Start | Description |
 |------|-------------|-------------|
-| Open 1v1 | `大100 3` | Wait for any one player to accept; starts immediately |
-| Targeted Duel | Reply to opponent and send `大100 3` | Only the replied player can accept; 1-minute timeout with refund; blocked if target is already in a game |
-| Multiplayer Pool | `大100 3 多` | 2–5 players; 15-second countdown triggered on first join |
-| Fixed Squad | `大100 3 多 4` | Waits until exactly N players have joined before starting |
+| Open 1v1 | Send `大<wager> <dice>`<br>(e.g. `大100 3` = bet high, 100 pts, 3 dice) | Wait for any one player to accept; starts immediately |
+| Targeted Duel | Reply to opponent and send `大<wager> <dice>` | Only the replied player can accept; 1-minute timeout with refund; blocked if target is already in a game |
+| Multiplayer Pool | Send `大<wager> <dice> 多` | 2–5 players; 15-second countdown triggered on first join |
+| Fixed Squad | Send `大<wager> <dice> 多 <N>` | Waits until exactly N players have joined before starting |
+
+> **Syntax**: `大` = bet high, `小` = bet low, followed by wager amount and dice count (1–5). Append `多` for multiplayer, `多 <N>` for fixed-size squad.
 
 - Supports 1–5 dice; 0-point wager = friendly match
 - Lobby panel shows game type, wager amount, and dice count in real time
@@ -181,7 +183,7 @@ Send `/dice_help` for the full command list.
 ### Quick Start
 
 1. Send `/dice_checkin` in the group to get initial points
-2. Send `大100 3` (high bet, 100 points, 3 dice) to start a game
+2. Send `大100 3` (bet high, 100 points, 3 dice) to start a game
 3. Once someone clicks "Accept", both players roll in turn
 4. The final score is derived from "base sum + duplicate bonus + straight multiplier, then take the ones digit" (see rules below)
 5. Winner takes the full wager; loser loses their wager
