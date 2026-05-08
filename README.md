@@ -4,6 +4,15 @@
 
 A full-featured Telegram dice arena group bot supporting multiple game modes, point-based red packets, leaderboards, holiday events, and more. Built with aiogram 3 + Redis + Docker.
 
+## Screenshots
+
+<div align="center">
+  <img src="docs/images/screenshot-commands.jpg" width="280" alt="Built-in commands">
+  <img src="docs/images/screenshot-rankings.jpg" width="280" alt="Daily battle report & rankings">
+  <img src="docs/images/screenshot-backup.jpg" width="280" alt="Hourly backups, daily reports">
+  <img src="docs/images/screenshot-gameplay.jpg" width="280" alt="Multi-mode game system">
+</div>
+
 ---
 
 ## Feature Overview

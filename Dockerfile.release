@@ -1,0 +1,18 @@
+FROM python:3.10-slim
+
+LABEL org.opencontainers.image.title="Dice Arena Telegram Bot"
+LABEL org.opencontainers.image.description="A full-featured Telegram dice arena group bot"
+LABEL org.opencontainers.image.version="0.3.7"
+LABEL org.opencontainers.image.source="https://github.com/Likhixang/dice_bot"
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY *.py .
+
+# Exclude development files (volume-mount mode uses host files)
+# For release, the bot code lives inside the image
+
+CMD ["python", "bot.py"]

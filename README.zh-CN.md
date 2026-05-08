@@ -4,6 +4,15 @@
 
 一个功能完整的 Telegram 骰子竞技群聊 Bot，支持多种对局模式、积分红包、排行榜、节日彩蛋等，基于 aiogram 3 + Redis + Docker 构建。
 
+## 截图
+
+<div align="center">
+  <img src="docs/images/screenshot-commands.jpg" width="280" alt="内置命令，多种用法">
+  <img src="docs/images/screenshot-rankings.jpg" width="280" alt="战况播报，输赢排行">
+  <img src="docs/images/screenshot-backup.jpg" width="280" alt="逐时备份，每日汇报">
+  <img src="docs/images/screenshot-gameplay.jpg" width="280" alt="多种对局模式">
+</div>
+
 ---
 
 ## 功能概览

@@ -1,0 +1,12 @@
+# dice_bot .dockerignore — exclude runtime/secrets/dev artifacts from Docker build context
+.git
+.env
+__pycache__/
+*.pyc
+*.db
+backup_*.db
+redis_data/
+release/
+Dockerfile.release
+.claude/
+node_modules/
